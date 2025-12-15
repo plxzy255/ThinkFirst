@@ -7,10 +7,10 @@ import AppKit
 
 final class SettingsPanelController: NSWindowController {
     init() {
-        let hostingView = NSHostingView(rootView: StickyNoteSettingsView())
+        let hostingView = NSHostingView(rootView: ThinkFirstSettingsView())
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 170),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

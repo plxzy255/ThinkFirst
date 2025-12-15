@@ -14,99 +14,6 @@ enum DoneButtonStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum StickyNoteBackgroundStyle: String, CaseIterable, Identifiable {
-    case solid = "solid"
-    case materialUltraThin = "materialUltraThin"
-    case materialThin = "materialThin"
-    case materialThick = "materialThick"
-    case liquidGlass = "liquidGlass"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .solid: "Solid"
-        case .materialUltraThin: "Ultra Thin"
-        case .materialThin: "Thin"
-        case .materialThick: "Thick"
-        case .liquidGlass: "Liquid Glass"
-        }
-    }
-}
-
-enum StickyNoteLiquidGlassStyle: String, CaseIterable, Identifiable {
-    case regular = "regular"
-    case clear = "clear"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .regular: "Regular"
-        case .clear: "Clear"
-        }
-    }
-}
-
-struct StickyNoteSettingsView: View {
-    @AppStorage("stickyNoteBackgroundStyle") private var backgroundStyleRaw: String = StickyNoteBackgroundStyle.solid.rawValue
-    @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
-    @AppStorage("stickyNoteLiquidGlassStyle") private var liquidGlassStyleRaw: String = StickyNoteLiquidGlassStyle.regular.rawValue
-
-    private var backgroundStyle: StickyNoteBackgroundStyle {
-        StickyNoteBackgroundStyle(rawValue: backgroundStyleRaw) ?? .solid
-    }
-
-    private var liquidGlassStyle: StickyNoteLiquidGlassStyle {
-        StickyNoteLiquidGlassStyle(rawValue: liquidGlassStyleRaw) ?? .regular
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Sticky Note")
-                .font(.headline)
-
-            Picker("Background", selection: $backgroundStyleRaw) {
-                Text("Solid").tag(StickyNoteBackgroundStyle.solid.rawValue)
-                Text("Liquid Glass").tag(StickyNoteBackgroundStyle.liquidGlass.rawValue)
-            }
-            .pickerStyle(.segmented)
-
-            if backgroundStyle == .liquidGlass {
-                Picker("Liquid Glass style", selection: $liquidGlassStyleRaw) {
-                    ForEach(StickyNoteLiquidGlassStyle.allCases) { style in
-                        Text(style.title).tag(style.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-
-            if backgroundStyle == .solid || (backgroundStyle == .liquidGlass && liquidGlassStyle == .clear) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(sliderLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Slider(value: $backgroundOpacity, in: 0...1)
-                }
-            } else if backgroundStyle == .liquidGlass && liquidGlassStyle == .regular {
-                Text("Regular uses no tint.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(16)
-        .frame(width: 360)
-    }
-
-    private var sliderLabel: String {
-        let pct = Int((backgroundOpacity * 100).rounded())
-        if backgroundStyle == .liquidGlass && liquidGlassStyle == .clear {
-            return "Tint strength: \(pct)%"
-        }
-        return "Background opacity: \(pct)%"
-    }
-}
-
 private struct DoneButtonStyleKey: EnvironmentKey {
     static let defaultValue: DoneButtonStyle = .glassProminent
 }
@@ -428,12 +335,12 @@ struct StickyNoteView: View {
     private static let minLines: CGFloat = 2
 
     @AppStorage("stickyNoteText") private var text: String = ""
-    @AppStorage("stickyNoteBackgroundStyle") private var backgroundStyleRaw: String = StickyNoteBackgroundStyle.solid.rawValue
-    @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
-    @AppStorage("stickyNoteLiquidGlassStyle") private var liquidGlassStyleRaw: String = StickyNoteLiquidGlassStyle.regular.rawValue
+    @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
+    @AppStorage("stickyNoteInactiveBlurStrength") private var inactiveBlurStrength: Double = 0.0
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
     @Environment(\.doneButtonStyle) private var doneButtonStyle
+    @Environment(\.controlActiveState) private var controlActiveState
     private let editorFont: NSFont = .systemFont(ofSize: StickyNoteView.fontSize)
     private var editorLineHeight: CGFloat {
         editorFont.ascender + abs(editorFont.descender) + editorFont.leading
@@ -443,13 +350,7 @@ struct StickyNoteView: View {
         return ceil(StickyNoteView.contentPadding * 2 + lineHeight * StickyNoteView.minLines)
     }
 
-    private var backgroundStyle: StickyNoteBackgroundStyle {
-        StickyNoteBackgroundStyle(rawValue: backgroundStyleRaw) ?? .solid
-    }
-
-    private var liquidGlassStyle: StickyNoteLiquidGlassStyle {
-        StickyNoteLiquidGlassStyle(rawValue: liquidGlassStyleRaw) ?? .regular
-    }
+    private var isWindowActive: Bool { controlActiveState == .key }
 
 #if DEBUG
     init(previewIsEditing: Bool = false) {
@@ -479,30 +380,19 @@ struct StickyNoteView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            switch backgroundStyle {
-            case .solid:
-                Color.black.opacity(backgroundOpacity)
-            case .materialUltraThin:
-                Rectangle().fill(.ultraThinMaterial)
-            case .materialThin:
-                Rectangle().fill(.thinMaterial)
-            case .materialThick:
-                Rectangle().fill(.thickMaterial)
-            case .liquidGlass:
+            if isWindowActive {
                 if #available(macOS 26.0, *) {
-                    switch liquidGlassStyle {
-                    case .regular:
-                        Color.clear
-                            .glassEffect(.regular, in: .rect(cornerRadius: 16))
-                    case .clear:
-                        Color.clear
-                            .padding()
-                            .glassEffect(.clear, in: .rect(cornerRadius: 16))
-                            .background(Color.black.opacity(0.3))
-                            .overlay(Color.black.opacity(backgroundOpacity * 0.25))
-                    }
+                    Color.clear
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
                 } else {
                     Rectangle().fill(.ultraThinMaterial)
+                }
+            } else {
+                ZStack {
+                    Color.black.opacity(inactiveBackgroundOpacity)
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(inactiveBlurStrength)
                 }
             }
         }

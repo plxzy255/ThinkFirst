@@ -7,8 +7,7 @@ private enum PreviewStorage {
             "Buy milk Call dentist Ship package test ",
             forKey: "stickyNoteText"
         )
-        defaults.set(StickyNoteBackgroundStyle.solid.rawValue, forKey: "stickyNoteBackgroundStyle")
-        defaults.set(0.7, forKey: "stickyNoteBackgroundOpacity")
+        defaults.set(0.14, forKey: "stickyNoteInactiveBackgroundOpacity")
         return defaults
     }()
 }
@@ -125,8 +124,6 @@ private struct PlaygroundBackdrop: View {
 
 private struct StickyNoteDoneButtonPlayground: View {
     @State private var doneStyle: DoneButtonStyle = .glassProminent
-    @AppStorage("stickyNoteBackgroundStyle") private var backgroundStyleRaw: String = StickyNoteBackgroundStyle.solid.rawValue
-    @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
     private static let noteSize = CGSize(width: 260, height: 100)
     private static let backdropSize = CGSize(width: 700, height: 450)
     private let backdrop = PlaygroundBackdropSpec.random()
@@ -137,21 +134,6 @@ private struct StickyNoteDoneButtonPlayground: View {
                 ForEach(DoneButtonStyle.allCases) { style in
                     Text(style.rawValue).tag(style)
                 }
-            }
-            .zIndex(1)
-
-            Picker("Window background", selection: $backgroundStyleRaw) {
-                ForEach(StickyNoteBackgroundStyle.allCases) { style in
-                    Text(style.title).tag(style.rawValue)
-                }
-            }
-            .frame(width: 260)
-            .zIndex(1)
-
-            HStack {
-                Text("Background opacity")
-                Slider(value: $backgroundOpacity, in: 0...1)
-                    .frame(width: 160)
             }
             .zIndex(1)
 
