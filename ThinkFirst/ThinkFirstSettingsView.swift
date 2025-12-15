@@ -1,14 +1,72 @@
 import CoreLocation
 import SwiftUI
 
+private struct SettingsSectionCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @ViewBuilder let content: Content
+
+    private let cornerRadius: CGFloat = 16
+
+    init(title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.secondary.opacity(0.10))
+                    )
+
+                Text(title)
+                    .font(.headline)
+
+                Spacer()
+            }
+
+            Divider().opacity(0.6)
+
+            content
+        }
+        .padding(18)
+        .frame(width: 420)
+        .background {
+            ZStack {
+                if #available(macOS 26.0, *) {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(Color.clear)
+                        .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+                } else {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(.ultraThinMaterial)
+                }
+
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+                    .blendMode(.plusLighter)
+
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(.black.opacity(0.25), lineWidth: 1)
+                    .blendMode(.multiply)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .shadow(radius: 14)
+    }
+}
+
 struct ThinkFirstSettingsView: View {
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.3
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
-    @Environment(\.controlActiveState) private var controlActiveState
     @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
-
-    private let cornerRadius: CGFloat = 16
-    private var isWindowActive: Bool { controlActiveState == .key }
 
     var body: some View {
         ZStack {
@@ -17,29 +75,7 @@ struct ThinkFirstSettingsView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 14) {
-                // Header
-                HStack(spacing: 10) {
-                    Image(systemName: "note.text")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(.secondary.opacity(0.10))
-                        )
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Sticky Note")
-                            .font(.headline)
-                    }
-
-                    Spacer()
-                }
-
-                Divider().opacity(0.6)
-
-                // Content
-                VStack(alignment: .leading, spacing: 14) {
+                SettingsSectionCard(title: "Sticky Note", systemImage: "note.text") {
                     VStack(alignment: .leading, spacing: 10) {
                         LabeledContent("Background opacity") {
                             Text("\(Int((inactiveBackgroundOpacity * 100).rounded()))%")
@@ -50,11 +86,11 @@ struct ThinkFirstSettingsView: View {
                         Slider(value: $inactiveBackgroundOpacity, in: 0...1)
                             .frame(maxWidth: 220)
                     }
+                }
 
-                    Divider().opacity(0.6)
-
+                SettingsSectionCard(title: "Prayer", systemImage: "hands.sparkles") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Toggle("Prayer", isOn: $prayerEnabled)
+                        Toggle("Enable Prayer", isOn: $prayerEnabled)
                             .onChange(of: prayerEnabled) { _, enabled in
                                 if enabled {
                                     prayerLocationManager.requestAccessAndLocation()
@@ -84,31 +120,6 @@ struct ThinkFirstSettingsView: View {
                     }
                 }
             }
-            .padding(18)
-            .frame(width: 420)
-            .background {
-                ZStack {
-                    if #available(macOS 26.0, *) {
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(Color.clear)
-                            .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-                    } else {
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(.ultraThinMaterial)
-                    }
-
-                    // Subtle border + depth
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-                        .blendMode(.plusLighter)
-
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .strokeBorder(.black.opacity(0.25), lineWidth: 1)
-                        .blendMode(.multiply)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .shadow(radius: 14)
             .padding(16)
         }
         .onAppear {
