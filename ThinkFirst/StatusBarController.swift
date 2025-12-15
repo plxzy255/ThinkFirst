@@ -14,13 +14,25 @@ class StatusBarController {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "ThinkFirst")
-            button.action = #selector(showStickyNote)
+            button.action = #selector(toggleStickyNote)
             button.target = self
         }
     }
 
-    @objc private func showStickyNote() {
+    func showStickyNote() {
         stickyNoteWindowController?.showStickyNote()
     }
-}
 
+    func hideStickyNote() {
+        stickyNoteWindowController?.hideStickyNote()
+    }
+
+    @objc private func toggleStickyNote() {
+        guard let controller = stickyNoteWindowController else { return }
+        if controller.isStickyNoteVisible {
+            controller.hideStickyNote()
+        } else {
+            controller.showStickyNote()
+        }
+    }
+}

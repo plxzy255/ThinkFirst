@@ -13,6 +13,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusBarController = StatusBarController()
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBarController?.showStickyNote()
+        }
     }
 }
 

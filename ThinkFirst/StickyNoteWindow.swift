@@ -50,25 +50,37 @@ private struct NativeTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
 
+    var isEditable: Bool
     var font: NSFont
     var textColor: NSColor
     var textContainerInset: CGSize
     var onFocusChange: ((Bool) -> Void)? = nil
     var onEndEditing: (() -> Void)? = nil
+    var onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)? = nil
+
+    private final class MeasuringScrollView: NSScrollView {
+        var onLayout: (() -> Void)?
+        override func layout() {
+            super.layout()
+            onLayout?()
+        }
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = MeasuringScrollView()
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.verticalScrollElasticity = .none
+
 
         let textView = CallbackTextView()
         textView.delegate = context.coordinator
         textView.isRichText = false
-        textView.isEditable = true
-        textView.isSelectable = true
+        textView.isEditable = isEditable
+        textView.isSelectable = isEditable
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.usesFindPanel = false
@@ -79,6 +91,11 @@ private struct NativeTextView: NSViewRepresentable {
         textView.string = text
         textView.textContainerInset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
         textView.textContainer?.lineFragmentPadding = 0
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
 
         textView.onFocusChange = { focused in
             DispatchQueue.main.async {
@@ -93,6 +110,20 @@ private struct NativeTextView: NSViewRepresentable {
             }
         }
 
+        scrollView.onLayout = { [weak scrollView, weak textView] in
+            guard
+                let scrollView,
+                let textView,
+                let window = scrollView.window,
+                let onMeasuredContentHeight
+            else { return }
+
+            let measured = Self.measuredContentHeight(for: textView)
+            DispatchQueue.main.async {
+                onMeasuredContentHeight(window, measured)
+            }
+        }
+
         scrollView.documentView = textView
         return scrollView
     }
@@ -104,12 +135,38 @@ private struct NativeTextView: NSViewRepresentable {
             textView.string = text
         }
 
+        if textView.isEditable != isEditable {
+            textView.isEditable = isEditable
+        }
+        if textView.isSelectable != isEditable {
+            textView.isSelectable = isEditable
+        }
+
         if textView.font != font { textView.font = font }
         if textView.textColor != textColor { textView.textColor = textColor }
 
         let inset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
         textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+
+        // Ensure the document view is at least as tall as the visible region; otherwise you'll see
+        // "dead space" at the bottom where clicks won't place the caret.
+        let contentSize = nsView.contentSize
+        let requiredHeight = Self.measuredContentHeight(for: textView)
+        var newFrame = textView.frame
+        newFrame.size.width = contentSize.width
+        newFrame.size.height = max(newFrame.size.height, contentSize.height, requiredHeight)
+        if textView.frame != newFrame {
+            textView.frame = newFrame
+        }
+
+        if let window = nsView.window, let onMeasuredContentHeight {
+            DispatchQueue.main.async {
+                onMeasuredContentHeight(window, requiredHeight)
+            }
+        }
 
         // Manage focus explicitly since SwiftUI FocusState doesn't apply to NSTextView.
         if isFocused {
@@ -124,19 +181,44 @@ private struct NativeTextView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onMeasuredContentHeight: onMeasuredContentHeight)
+    }
+
+    private static func measuredContentHeight(for textView: NSTextView) -> CGFloat {
+        guard
+            let textContainer = textView.textContainer,
+            let layoutManager = textView.layoutManager
+        else {
+            return max(0, textView.bounds.height)
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let usedHeight = layoutManager.usedRect(for: textContainer).height
+        let font = textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let lineHeight = layoutManager.defaultLineHeight(for: font)
+
+        return ceil(max(usedHeight, lineHeight) + textView.textContainerInset.height * 2)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
+        private let onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)?
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)?) {
             _text = text
+            self.onMeasuredContentHeight = onMeasuredContentHeight
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
+
+            guard
+                let window = textView.window,
+                let onMeasuredContentHeight
+            else { return }
+
+            onMeasuredContentHeight(window, NativeTextView.measuredContentHeight(for: textView))
         }
     }
 
@@ -221,6 +303,11 @@ private struct WindowDragOverlay: NSViewRepresentable {
         var enabled: Bool = false
         var onDoubleClick: () -> Void = {}
 
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            // Allow dragging the window even when it isn't key/focused.
+            enabled
+        }
+
         override func hitTest(_ point: NSPoint) -> NSView? {
             enabled ? self : nil
         }
@@ -243,14 +330,21 @@ private struct WindowDragOverlay: NSViewRepresentable {
 
 // The content that appears in the sticky note window
 struct StickyNoteView: View {
+    static let contentPadding: CGFloat = 16
+    static let fontSize: CGFloat = 18
+    private static let minLines: CGFloat = 2
+
     @AppStorage("stickyNoteText") private var text: String = ""
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
     @Environment(\.doneButtonStyle) private var doneButtonStyle
-    private let contentPadding: CGFloat = 16
-    private let editorFont: NSFont = .systemFont(ofSize: 18)
+    private let editorFont: NSFont = .systemFont(ofSize: StickyNoteView.fontSize)
     private var editorLineHeight: CGFloat {
         editorFont.ascender + abs(editorFont.descender) + editorFont.leading
+    }
+    private var baseMinContentHeight: CGFloat {
+        let lineHeight = ceil(editorLineHeight)
+        return ceil(StickyNoteView.contentPadding * 2 + lineHeight * StickyNoteView.minLines)
     }
 
 #if DEBUG
@@ -261,33 +355,27 @@ struct StickyNoteView: View {
 #endif
 
     var body: some View {
-        Group {
-            if isEditing {
-                NativeTextView(
-                    text: $text,
-                    isFocused: $isTextEditorFocused,
-                    font: editorFont,
-                    textColor: .white,
-                    textContainerInset: CGSize(width: contentPadding, height: contentPadding),
-                    onFocusChange: { focused in
-                        if !focused { endEditing() }
-                    },
-                    onEndEditing: {
-                        endEditing()
-                    }
-                )
-                    .frame(minWidth: 250, minHeight: 160)
-                    .background(Color.black.opacity(0.7))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-            } else {
-                Text(text)
-                    .padding(contentPadding)
-                    .frame(minWidth: 250, minHeight: 160, alignment: .topLeading)
-                    .background(Color.black.opacity(0.7))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .font(.system(size: 18))
+        NativeTextView(
+            text: $text,
+            isFocused: $isTextEditorFocused,
+            isEditable: isEditing,
+            font: editorFont,
+            textColor: .white,
+            textContainerInset: CGSize(width: StickyNoteView.contentPadding, height: StickyNoteView.contentPadding),
+            onFocusChange: { focused in
+                if !focused { endEditing() }
+            },
+            onEndEditing: {
+                endEditing()
+            },
+            onMeasuredContentHeight: { window, measuredContentHeight in
+                updateWindowHeightConstraints(window, desiredContentHeight: measuredContentHeight)
+                growWindowIfNeeded(window, desiredContentHeight: measuredContentHeight)
             }
-        }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
             WindowDragOverlay(enabled: !isEditing) {
                 isEditing = true
@@ -310,9 +398,9 @@ struct StickyNoteView: View {
 
                     doneButton
                 }
-                .padding(.top, contentPadding)
-                .padding(.leading, contentPadding)
-                .padding(.trailing, contentPadding)
+                .padding(.top, StickyNoteView.contentPadding)
+                .padding(.leading, StickyNoteView.contentPadding)
+                .padding(.trailing, StickyNoteView.contentPadding)
             }
         }
     }
@@ -350,15 +438,74 @@ struct StickyNoteView: View {
         isTextEditorFocused = false
         isEditing = false
     }
+
+    private func updateWindowHeightConstraints(_ window: NSWindow, desiredContentHeight: CGFloat) {
+        let maxHeight = window.contentMaxSize.height > 0 ? window.contentMaxSize.height : desiredContentHeight
+        let clampedHeight = min(max(desiredContentHeight, baseMinContentHeight), maxHeight)
+
+        // Keep the window from being resized smaller than the content height (so you don't end up scrolling
+        // immediately after manually shrinking the window).
+        if window.contentMinSize.height != clampedHeight {
+            window.contentMinSize.height = clampedHeight
+        }
+    }
+
+    private func growWindowIfNeeded(_ window: NSWindow, desiredContentHeight: CGFloat) {
+        guard !window.inLiveResize else { return }
+
+        let minHeight = max(window.contentMinSize.height, baseMinContentHeight)
+        let maxHeight = window.contentMaxSize.height > 0 ? window.contentMaxSize.height : desiredContentHeight
+        let clampedHeight = min(max(desiredContentHeight, minHeight), maxHeight)
+
+        let currentContentHeight = window.contentRect(forFrameRect: window.frame).height
+        guard clampedHeight > currentContentHeight + 1 else { return }
+
+        let currentContentWidth = window.contentRect(forFrameRect: window.frame).width
+        let targetContentRect = NSRect(origin: .zero, size: NSSize(width: currentContentWidth, height: clampedHeight))
+        let targetFrameHeight = window.frameRect(forContentRect: targetContentRect).height
+
+        var newFrame = window.frame
+        let delta = targetFrameHeight - newFrame.size.height
+        newFrame.origin.y -= delta
+        newFrame.size.height = targetFrameHeight
+        window.setFrame(newFrame, display: true, animate: true)
+    }
 }
 
 // Controls the sticky note window itself
-class StickyNoteWindowController: NSWindowController {
+class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
+    private static let minWidth: CGFloat = 260
+    private static let maxWidth: CGFloat = 520
+    private static let minLines: CGFloat = 2
+    private static let maxLines: CGFloat = 24
+
+    private static var lineHeight: CGFloat {
+        let font = NSFont.systemFont(ofSize: StickyNoteView.fontSize)
+        return ceil(font.ascender + abs(font.descender) + font.leading)
+    }
+
+    private static func contentHeight(lines: CGFloat) -> CGFloat {
+        ceil(StickyNoteView.contentPadding * 2 + lineHeight * lines)
+    }
+
+    private static let minContentSize: NSSize = {
+        NSSize(width: minWidth, height: contentHeight(lines: minLines))
+    }()
+
+    private static let maxContentSize: NSSize = {
+        NSSize(width: maxWidth, height: contentHeight(lines: maxLines))
+    }()
+
     init() {
         let hosting = NSHostingController(rootView: StickyNoteView())
+        // Prevent SwiftUI's content from driving the window size when the view hierarchy changes
+        // (e.g. toggling between read/edit modes).
+        hosting.sizingOptions = []
         let window = StickyNoteWindow(contentViewController: hosting)
         window.title = "Sticky Note"
-        window.setContentSize(NSSize(width: 260, height: 180))
+        window.setContentSize(Self.minContentSize)
+        window.contentMinSize = Self.minContentSize
+        window.contentMaxSize = Self.maxContentSize
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         // Removes title bar and window controls for a cleaner sticky note appearance
@@ -368,11 +515,33 @@ class StickyNoteWindowController: NSWindowController {
         window.isOpaque = false
         window.backgroundColor = .clear
         super.init(window: window)
+        window.delegate = self
     }
     required init?(coder: NSCoder) { super.init(coder: coder) }
+
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        // Width limits are fixed; height minimum is dynamic (tracks text content).
+        let minContent = NSSize(width: Self.minContentSize.width, height: sender.contentMinSize.height)
+        let maxContent = NSSize(width: Self.maxContentSize.width, height: sender.contentMaxSize.height)
+        let minFrame = sender.frameRect(forContentRect: NSRect(origin: .zero, size: minContent)).size
+        let maxFrame = sender.frameRect(forContentRect: NSRect(origin: .zero, size: maxContent)).size
+
+        return NSSize(
+            width: min(max(frameSize.width, minFrame.width), maxFrame.width),
+            height: min(max(frameSize.height, minFrame.height), maxFrame.height)
+        )
+    }
 
     func showStickyNote() {
         self.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    var isStickyNoteVisible: Bool {
+        self.window?.isVisible ?? false
+    }
+
+    func hideStickyNote() {
+        self.window?.orderOut(nil)
     }
 }
