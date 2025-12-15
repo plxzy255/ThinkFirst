@@ -1,0 +1,45 @@
+import CoreLocation
+import PrayerKit
+import SwiftUI
+
+struct PrayerSectionView: View {
+    let coordinate: CLLocationCoordinate2D
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Prayer")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let next = PrayerKit.nextPrayer(
+                    now: context.date,
+                    latitude: coordinate.latitude,
+                    longitude: coordinate.longitude,
+                    timeZone: .current
+                )
+
+                if let next {
+                    HStack(spacing: 6) {
+                        Text("\(next.prayer.displayName):")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+
+                        Text(next.time, style: .time)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.95))
+
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    Text("Prayer time unavailable.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, StickyNoteView.contentPadding)
+    }
+}
+

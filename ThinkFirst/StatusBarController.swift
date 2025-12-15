@@ -8,14 +8,20 @@ import AppKit
 final class SettingsPanelController: NSWindowController {
     init() {
         let hostingView = NSHostingView(rootView: ThinkFirstSettingsView())
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 170),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 452, height: 320),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         panel.title = "Settings"
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.isReleasedWhenClosed = false
         panel.contentView = hostingView
         panel.center()
