@@ -60,9 +60,12 @@ private struct NativeTextView: NSViewRepresentable {
 
     private final class MeasuringScrollView: NSScrollView {
         var onLayout: (() -> Void)?
+        var shouldMeasure: Bool = false
         override func layout() {
             super.layout()
-            onLayout?()
+            if shouldMeasure || inLiveResize {
+                onLayout?()
+            }
         }
     }
 
@@ -115,14 +118,13 @@ private struct NativeTextView: NSViewRepresentable {
                 let scrollView,
                 let textView,
                 let window = scrollView.window,
-                let onMeasuredContentHeight
+                onMeasuredContentHeight != nil
             else { return }
 
             let measured = Self.measuredContentHeight(for: textView)
-            DispatchQueue.main.async {
-                onMeasuredContentHeight(window, measured)
-            }
+            context.coordinator.maybeReportMeasuredHeight(window, measured)
         }
+        scrollView.shouldMeasure = isEditable
 
         scrollView.documentView = textView
         return scrollView
@@ -130,6 +132,9 @@ private struct NativeTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? CallbackTextView else { return }
+        if let measuringScrollView = nsView as? MeasuringScrollView {
+            measuringScrollView.shouldMeasure = isEditable
+        }
 
         if textView.string != text {
             textView.string = text
@@ -162,10 +167,8 @@ private struct NativeTextView: NSViewRepresentable {
             textView.frame = newFrame
         }
 
-        if let window = nsView.window, let onMeasuredContentHeight {
-            DispatchQueue.main.async {
-                onMeasuredContentHeight(window, requiredHeight)
-            }
+        if let window = nsView.window, onMeasuredContentHeight != nil {
+            context.coordinator.maybeReportMeasuredHeight(window, requiredHeight)
         }
 
         // Manage focus explicitly since SwiftUI FocusState doesn't apply to NSTextView.
@@ -203,10 +206,20 @@ private struct NativeTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         private let onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)?
+        private var lastReportedHeight: CGFloat = 0
 
         init(text: Binding<String>, onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)?) {
             _text = text
             self.onMeasuredContentHeight = onMeasuredContentHeight
+        }
+
+        func maybeReportMeasuredHeight(_ window: NSWindow, _ height: CGFloat) {
+            guard let onMeasuredContentHeight else { return }
+            if abs(height - lastReportedHeight) <= 1 { return }
+            lastReportedHeight = height
+            DispatchQueue.main.async {
+                onMeasuredContentHeight(window, height)
+            }
         }
 
         func textDidChange(_ notification: Notification) {
@@ -218,7 +231,8 @@ private struct NativeTextView: NSViewRepresentable {
                 let onMeasuredContentHeight
             else { return }
 
-            onMeasuredContentHeight(window, NativeTextView.measuredContentHeight(for: textView))
+            _ = onMeasuredContentHeight
+            maybeReportMeasuredHeight(window, NativeTextView.measuredContentHeight(for: textView))
         }
     }
 
