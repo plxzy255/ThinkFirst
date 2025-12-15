@@ -226,7 +226,6 @@ private struct NativeTextView: NSViewRepresentable {
         var onFocusChange: (Bool) -> Void = { _ in }
         var onEndEditing: () -> Void = {}
         private var windowResignObserver: Any?
-        private var appResignObserver: Any?
 
         override func becomeFirstResponder() -> Bool {
             let became = super.becomeFirstResponder()
@@ -256,25 +255,12 @@ private struct NativeTextView: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(windowResignObserver)
                 self.windowResignObserver = nil
             }
-            if let appResignObserver {
-                NotificationCenter.default.removeObserver(appResignObserver)
-                self.appResignObserver = nil
-            }
 
             guard let window else { return }
 
             windowResignObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification,
                 object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onEndEditing()
-            }
-
-            // Clicking into another app ends editing too.
-            appResignObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: NSApp,
                 queue: .main
             ) { [weak self] _ in
                 self?.onEndEditing()
