@@ -336,7 +336,6 @@ struct StickyNoteView: View {
 
     @AppStorage("stickyNoteText") private var text: String = ""
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
-    @AppStorage("stickyNoteInactiveBlurStrength") private var inactiveBlurStrength: Double = 0.0
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
     @Environment(\.doneButtonStyle) private var doneButtonStyle
@@ -388,12 +387,7 @@ struct StickyNoteView: View {
                     Rectangle().fill(.ultraThinMaterial)
                 }
             } else {
-                ZStack {
-                    Color.black.opacity(inactiveBackgroundOpacity)
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(inactiveBlurStrength)
-                }
+                Color.black.opacity(inactiveBackgroundOpacity)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
