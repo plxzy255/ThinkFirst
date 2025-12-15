@@ -411,13 +411,8 @@ struct StickyNoteView: View {
             case .materialThick:
                 Rectangle().fill(.thickMaterial)
             case .liquidGlass:
-                if #available(macOS 26.0, *) {
-                    Color.clear
-                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
-                        .overlay(Color.black.opacity(backgroundOpacity * 0.25))
-                } else {
-                    Rectangle().fill(.ultraThinMaterial)
-                }
+                Color.clear
+                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
