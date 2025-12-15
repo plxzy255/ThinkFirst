@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ThinkFirstSettingsView: View {
-    @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
+    @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.3
     @AppStorage("stickyNoteInactiveBlurStrength") private var inactiveBlurStrength: Double = 0.0
 
     var body: some View {
