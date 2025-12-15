@@ -54,6 +54,7 @@ private struct NativeTextView: NSViewRepresentable {
     var textColor: NSColor
     var textContainerInset: CGSize
     var onFocusChange: ((Bool) -> Void)? = nil
+    var onEndEditing: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -83,6 +84,12 @@ private struct NativeTextView: NSViewRepresentable {
             DispatchQueue.main.async {
                 isFocused = focused
                 onFocusChange?(focused)
+            }
+        }
+        textView.onEndEditing = {
+            DispatchQueue.main.async {
+                isFocused = false
+                onEndEditing?()
             }
         }
 
@@ -135,6 +142,9 @@ private struct NativeTextView: NSViewRepresentable {
 
     final class CallbackTextView: NSTextView {
         var onFocusChange: (Bool) -> Void = { _ in }
+        var onEndEditing: () -> Void = {}
+        private var windowResignObserver: Any?
+        private var appResignObserver: Any?
 
         override func becomeFirstResponder() -> Bool {
             let became = super.becomeFirstResponder()
@@ -146,6 +156,47 @@ private struct NativeTextView: NSViewRepresentable {
             let resigned = super.resignFirstResponder()
             if resigned { onFocusChange(false) }
             return resigned
+        }
+
+        override func keyDown(with event: NSEvent) {
+            // Escape ends editing.
+            if event.keyCode == 53 {
+                onEndEditing()
+                return
+            }
+            super.keyDown(with: event)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            if let windowResignObserver {
+                NotificationCenter.default.removeObserver(windowResignObserver)
+                self.windowResignObserver = nil
+            }
+            if let appResignObserver {
+                NotificationCenter.default.removeObserver(appResignObserver)
+                self.appResignObserver = nil
+            }
+
+            guard let window else { return }
+
+            windowResignObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.onEndEditing()
+            }
+
+            // Clicking into another app ends editing too.
+            appResignObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: NSApp,
+                queue: .main
+            ) { [weak self] _ in
+                self?.onEndEditing()
+            }
         }
     }
 }
@@ -219,7 +270,10 @@ struct StickyNoteView: View {
                     textColor: .white,
                     textContainerInset: CGSize(width: contentPadding, height: contentPadding),
                     onFocusChange: { focused in
-                        if !focused { isEditing = false }
+                        if !focused { endEditing() }
+                    },
+                    onEndEditing: {
+                        endEditing()
                     }
                 )
                     .frame(minWidth: 250, minHeight: 160)
@@ -281,9 +335,7 @@ struct StickyNoteView: View {
 
     private var baseDoneButton: some View {
         Button {
-            // End editing and dismiss focus
-            isTextEditorFocused = false
-            isEditing = false
+            endEditing()
         } label: {
             Text("Done")
         }
@@ -292,6 +344,11 @@ struct StickyNoteView: View {
         .alignmentGuide(.firstLineCenter) { dimensions in
             dimensions[VerticalAlignment.center]
         }
+    }
+
+    private func endEditing() {
+        isTextEditorFocused = false
+        isEditing = false
     }
 }
 
