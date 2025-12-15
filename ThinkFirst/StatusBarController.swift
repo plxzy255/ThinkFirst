@@ -10,6 +10,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var stickyNoteWindowController: StickyNoteWindowController? = nil
     private let statusMenu = NSMenu()
     private let toggleVisibilityItem = NSMenuItem()
+    private let backgroundMenuItem = NSMenuItem(title: "Background", action: nil, keyEquivalent: "")
+    private let backgroundSubmenu = NSMenu()
+    private let backgroundSolidItem = NSMenuItem(title: "Solid", action: #selector(setBackgroundSolid), keyEquivalent: "")
+    private let backgroundLiquidGlassItem = NSMenuItem(title: "Liquid Glass", action: #selector(setBackgroundLiquidGlass), keyEquivalent: "")
 
     override init() {
         super.init()
@@ -26,12 +30,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         statusMenu.addItem(toggleVisibilityItem)
         statusMenu.addItem(.separator())
 
+        backgroundSolidItem.target = self
+        backgroundLiquidGlassItem.target = self
+        backgroundSubmenu.addItem(backgroundSolidItem)
+        backgroundSubmenu.addItem(backgroundLiquidGlassItem)
+        backgroundMenuItem.submenu = backgroundSubmenu
+        statusMenu.addItem(backgroundMenuItem)
+        statusMenu.addItem(.separator())
+
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
         quitItem.target = self
         statusMenu.addItem(quitItem)
 
         updateToggleVisibilityTitle()
+        updateBackgroundMenuState()
         statusItem.menu = statusMenu
     }
 
@@ -45,6 +58,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         updateToggleVisibilityTitle()
+        updateBackgroundMenuState()
     }
 
     private func updateToggleVisibilityTitle() {
@@ -55,6 +69,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         toggleVisibilityItem.title = controller.isStickyNoteVisible ? "Hide" : "Show"
     }
 
+    private func updateBackgroundMenuState() {
+        let currentRaw = UserDefaults.standard.string(forKey: "stickyNoteBackgroundStyle")
+            ?? StickyNoteBackgroundStyle.solid.rawValue
+        let current = StickyNoteBackgroundStyle(rawValue: currentRaw) ?? .solid
+
+        backgroundSolidItem.state = (current == .solid) ? .on : .off
+        backgroundLiquidGlassItem.state = (current == .liquidGlass) ? .on : .off
+    }
+
     @objc private func toggleStickyNoteFromMenu() {
         guard let controller = stickyNoteWindowController else { return }
         if controller.isStickyNoteVisible {
@@ -63,6 +86,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             controller.showStickyNote()
         }
         updateToggleVisibilityTitle()
+    }
+
+    @objc private func setBackgroundSolid() {
+        UserDefaults.standard.set(StickyNoteBackgroundStyle.solid.rawValue, forKey: "stickyNoteBackgroundStyle")
+        updateBackgroundMenuState()
+    }
+
+    @objc private func setBackgroundLiquidGlass() {
+        UserDefaults.standard.set(StickyNoteBackgroundStyle.liquidGlass.rawValue, forKey: "stickyNoteBackgroundStyle")
+        updateBackgroundMenuState()
     }
 
     @objc private func quitApp() {

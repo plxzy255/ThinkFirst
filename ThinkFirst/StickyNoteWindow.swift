@@ -14,11 +14,24 @@ enum DoneButtonStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-private enum StickyNoteBackgroundStyle: String, CaseIterable, Identifiable {
-    case solid = "Solid"
-    case liquidGlass = "Liquid Glass"
+enum StickyNoteBackgroundStyle: String, CaseIterable, Identifiable {
+    case solid = "solid"
+    case materialUltraThin = "materialUltraThin"
+    case materialThin = "materialThin"
+    case materialThick = "materialThick"
+    case liquidGlass = "liquidGlass"
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .solid: "Solid"
+        case .materialUltraThin: "Ultra Thin"
+        case .materialThin: "Thin"
+        case .materialThick: "Thick"
+        case .liquidGlass: "Liquid Glass"
+        }
+    }
 }
 
 private struct DoneButtonStyleKey: EnvironmentKey {
@@ -391,16 +404,19 @@ struct StickyNoteView: View {
             switch backgroundStyle {
             case .solid:
                 Color.black.opacity(backgroundOpacity)
+            case .materialUltraThin:
+                Rectangle().fill(.ultraThinMaterial)
+            case .materialThin:
+                Rectangle().fill(.thinMaterial)
+            case .materialThick:
+                Rectangle().fill(.thickMaterial)
             case .liquidGlass:
                 if #available(macOS 26.0, *) {
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .glassEffect()
-                        .opacity(backgroundOpacity)
+                    Color.clear
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                        .overlay(Color.black.opacity(backgroundOpacity * 0.25))
                 } else {
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(backgroundOpacity)
+                    Rectangle().fill(.ultraThinMaterial)
                 }
             }
         }
