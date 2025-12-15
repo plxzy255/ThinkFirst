@@ -1,9 +1,12 @@
 // StickyNoteWindow.swift
 // Manages the floating sticky note window and contains the SwiftUI view for editing text.
 
-import SwiftUI
 import AppKit
+import Combine
 import CoreLocation
+import SwiftUI
+
+// MARK: - Done Button Style
 
 enum DoneButtonStyle: String, CaseIterable, Identifiable {
     case automatic = "Automatic"
@@ -42,10 +45,102 @@ private extension VerticalAlignment {
     static let firstLineCenter = VerticalAlignment(FirstLineCenter.self)
 }
 
+// MARK: - Layout Constants
+
+enum StickyNoteLayout {
+    static let contentPadding: CGFloat = 16
+    static let fontSize: CGFloat = 18
+    static let minVisibleLines: CGFloat = 2
+}
+
+// MARK: - Window + Resizing
+
 private final class StickyNoteWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
+
+final class StickyNoteWindowResizer: ObservableObject {
+    private weak var window: NSWindow?
+
+    private var isPrayerEnabled: Bool = false
+    private var measuredTextHeight: CGFloat = 0
+    private var measuredPrayerHeight: CGFloat = 0
+    private var minTextHeight: CGFloat = 0
+
+    private var lastAppliedContentHeight: CGFloat = 0
+    private var pendingApply: Bool = false
+
+    func attach(window: NSWindow) {
+        self.window = window
+        scheduleApply()
+    }
+
+    func setPrayerEnabled(_ enabled: Bool) {
+        isPrayerEnabled = enabled
+        if enabled, measuredPrayerHeight <= 0 {
+            measuredPrayerHeight = 60
+        }
+        scheduleApply()
+    }
+
+    func setMinTextHeight(_ height: CGFloat) {
+        minTextHeight = height
+        scheduleApply()
+    }
+
+    func setMeasuredTextHeight(_ height: CGFloat) {
+        measuredTextHeight = height
+        scheduleApply()
+    }
+
+    func setMeasuredPrayerHeight(_ height: CGFloat) {
+        measuredPrayerHeight = height
+        scheduleApply()
+    }
+
+    private func scheduleApply() {
+        guard !pendingApply else { return }
+        pendingApply = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingApply = false
+            self.apply()
+        }
+    }
+
+    private func apply() {
+        guard let window else { return }
+
+        let textHeight = max(measuredTextHeight, minTextHeight)
+        let prayerHeight = isPrayerEnabled ? measuredPrayerHeight : 0
+        let desiredContentHeight = ceil(textHeight + prayerHeight)
+
+        guard desiredContentHeight.isFinite, desiredContentHeight > 0 else { return }
+        guard abs(desiredContentHeight - lastAppliedContentHeight) > 0.5 else { return }
+        lastAppliedContentHeight = desiredContentHeight
+
+        var newMin = window.contentMinSize
+        if newMin.height != desiredContentHeight {
+            newMin.height = desiredContentHeight
+            window.contentMinSize = newMin
+        }
+
+        let currentContentWidth = window.contentRect(forFrameRect: window.frame).width
+        let targetContentRect = NSRect(origin: .zero, size: NSSize(width: currentContentWidth, height: desiredContentHeight))
+        let targetFrameHeight = window.frameRect(forContentRect: targetContentRect).height
+
+        var frame = window.frame
+        let top = frame.maxY
+        guard abs(targetFrameHeight - frame.height) > 0.5 else { return }
+        frame.size.height = targetFrameHeight
+        frame.origin.y = top - targetFrameHeight
+
+        window.setFrame(frame, display: true, animate: false)
+    }
+}
+
+// MARK: - Native Text Editor
 
 private struct NativeTextView: NSViewRepresentable {
     @Binding var text: String
@@ -57,25 +152,36 @@ private struct NativeTextView: NSViewRepresentable {
     var textContainerInset: CGSize
     var onFocusChange: ((Bool) -> Void)? = nil
     var onEndEditing: (() -> Void)? = nil
-    var onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)? = nil
+    var onMeasuredContentHeight: ((CGFloat) -> Void)? = nil
 
-    private final class MeasuringScrollView: NSScrollView {
+    private final class NonScrollingMeasuringScrollView: NSScrollView {
         var onLayout: (() -> Void)?
         override func layout() {
             super.layout()
             onLayout?()
         }
+
+        override func scrollWheel(with event: NSEvent) {
+            // Never allow internal scrolling; the window grows instead.
+        }
+
+        override func reflectScrolledClipView(_ cView: NSClipView) {
+            if cView.bounds.origin != .zero {
+                cView.scroll(to: .zero)
+            }
+            super.reflectScrolledClipView(cView)
+        }
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = MeasuringScrollView()
+        let scrollView = NonScrollingMeasuringScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.verticalScrollElasticity = .none
-
+        scrollView.horizontalScrollElasticity = .none
 
         let textView = CallbackTextView()
         textView.delegate = context.coordinator
@@ -112,16 +218,11 @@ private struct NativeTextView: NSViewRepresentable {
         }
 
         scrollView.onLayout = { [weak scrollView, weak textView] in
-            guard
-                let scrollView,
-                let textView,
-                let window = scrollView.window,
-                let onMeasuredContentHeight
-            else { return }
-
+            guard let scrollView, let textView else { return }
             let measured = Self.measuredContentHeight(for: textView)
             DispatchQueue.main.async {
-                onMeasuredContentHeight(window, measured)
+                guard scrollView.window != nil else { return }
+                onMeasuredContentHeight?(measured)
             }
         }
 
@@ -132,17 +233,9 @@ private struct NativeTextView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? CallbackTextView else { return }
 
-        if textView.string != text {
-            textView.string = text
-        }
-
-        if textView.isEditable != isEditable {
-            textView.isEditable = isEditable
-        }
-        if textView.isSelectable != isEditable {
-            textView.isSelectable = isEditable
-        }
-
+        if textView.string != text { textView.string = text }
+        if textView.isEditable != isEditable { textView.isEditable = isEditable }
+        if textView.isSelectable != isEditable { textView.isSelectable = isEditable }
         if textView.font != font { textView.font = font }
         if textView.textColor != textColor { textView.textColor = textColor }
 
@@ -152,24 +245,18 @@ private struct NativeTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
 
-        // Ensure the document view is at least as tall as the visible region; otherwise you'll see
-        // "dead space" at the bottom where clicks won't place the caret.
-        let contentSize = nsView.contentSize
         let requiredHeight = Self.measuredContentHeight(for: textView)
-        var newFrame = textView.frame
-        newFrame.size.width = contentSize.width
-        newFrame.size.height = max(newFrame.size.height, contentSize.height, requiredHeight)
-        if textView.frame != newFrame {
-            textView.frame = newFrame
-        }
+        let contentSize = nsView.contentSize
 
-        if let window = nsView.window, let onMeasuredContentHeight {
-            DispatchQueue.main.async {
-                onMeasuredContentHeight(window, requiredHeight)
-            }
-        }
+        var frame = textView.frame
+        frame.size.width = contentSize.width
+        frame.size.height = max(contentSize.height, requiredHeight)
+        if textView.frame != frame { textView.frame = frame }
 
-        // Manage focus explicitly since SwiftUI FocusState doesn't apply to NSTextView.
+        // Ensure programmatic text changes (e.g. trimming trailing newlines on end editing)
+        // still trigger a resize even if no layout pass occurs.
+        onMeasuredContentHeight?(requiredHeight)
+
         if isFocused {
             if nsView.window?.firstResponder !== textView {
                 nsView.window?.makeFirstResponder(textView)
@@ -197,15 +284,14 @@ private struct NativeTextView: NSViewRepresentable {
         let usedHeight = layoutManager.usedRect(for: textContainer).height
         let font = textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let lineHeight = layoutManager.defaultLineHeight(for: font)
-
         return ceil(max(usedHeight, lineHeight) + textView.textContainerInset.height * 2)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
-        private let onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)?
+        private let onMeasuredContentHeight: ((CGFloat) -> Void)?
 
-        init(text: Binding<String>, onMeasuredContentHeight: ((NSWindow, CGFloat) -> Void)?) {
+        init(text: Binding<String>, onMeasuredContentHeight: ((CGFloat) -> Void)?) {
             _text = text
             self.onMeasuredContentHeight = onMeasuredContentHeight
         }
@@ -213,13 +299,7 @@ private struct NativeTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
-
-            guard
-                let window = textView.window,
-                let onMeasuredContentHeight
-            else { return }
-
-            onMeasuredContentHeight(window, NativeTextView.measuredContentHeight(for: textView))
+            onMeasuredContentHeight?(NativeTextView.measuredContentHeight(for: textView))
         }
     }
 
@@ -272,7 +352,6 @@ private struct NativeTextView: NSViewRepresentable {
                 self?.onEndEditing()
             }
 
-            // Clicking into another app ends editing too.
             appResignObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didResignActiveNotification,
                 object: NSApp,
@@ -283,6 +362,8 @@ private struct NativeTextView: NSViewRepresentable {
         }
     }
 }
+
+// MARK: - Window Dragging Overlay
 
 private struct WindowDragOverlay: NSViewRepresentable {
     var enabled: Bool
@@ -305,7 +386,6 @@ private struct WindowDragOverlay: NSViewRepresentable {
         var onDoubleClick: () -> Void = {}
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-            // Allow dragging the window even when it isn't key/focused.
             enabled
         }
 
@@ -329,158 +409,165 @@ private struct WindowDragOverlay: NSViewRepresentable {
     }
 }
 
+// MARK: - SwiftUI Content
+
+private struct PrayerAccessoryHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 // The content that appears in the sticky note window
 struct StickyNoteView: View {
-    static let contentPadding: CGFloat = 16
-    static let fontSize: CGFloat = 18
-    private static let minLines: CGFloat = 2
+    @StateObject private var resizer: StickyNoteWindowResizer
 
-	@AppStorage("stickyNoteText") private var text: String = ""
-	@AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
-	@AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
-	@State private var isEditing: Bool = false
-	@State private var isTextEditorFocused: Bool = false
-	@State private var prayerAccessoryHeight: CGFloat = 0
-	@Environment(\.doneButtonStyle) private var doneButtonStyle
-	@Environment(\.controlActiveState) private var controlActiveState
-	@ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
-	private let editorFont: NSFont = .systemFont(ofSize: StickyNoteView.fontSize)
+    @AppStorage("stickyNoteText") private var text: String = ""
+    @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
+    @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
+
+    @State private var isEditing: Bool = false
+    @State private var isTextEditorFocused: Bool = false
+
+    @Environment(\.doneButtonStyle) private var doneButtonStyle
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
+    private let editorFont: NSFont = .systemFont(ofSize: StickyNoteLayout.fontSize)
+
     private var editorLineHeight: CGFloat {
         editorFont.ascender + abs(editorFont.descender) + editorFont.leading
     }
-    private var baseMinContentHeight: CGFloat {
+
+    private var minTextContentHeight: CGFloat {
         let lineHeight = ceil(editorLineHeight)
-        return ceil(StickyNoteView.contentPadding * 2 + lineHeight * StickyNoteView.minLines)
+        return ceil(StickyNoteLayout.contentPadding * 2 + lineHeight * StickyNoteLayout.minVisibleLines)
     }
 
-	private var isWindowActive: Bool { controlActiveState == .key }
-	private var combinedBaseMinContentHeight: CGFloat {
-		baseMinContentHeight + (prayerEnabled ? prayerAccessoryHeight : 0)
-	}
+    private var isWindowActive: Bool { controlActiveState == .key }
 
-#if DEBUG
-    init(previewIsEditing: Bool = false) {
+    init(resizer: StickyNoteWindowResizer = StickyNoteWindowResizer(), previewIsEditing: Bool = false) {
+        _resizer = StateObject(wrappedValue: resizer)
         _isEditing = State(initialValue: previewIsEditing)
         _isTextEditorFocused = State(initialValue: previewIsEditing)
     }
-#endif
 
-	var body: some View {
-		VStack(spacing: 0) {
-			NativeTextView(
-				text: $text,
-				isFocused: $isTextEditorFocused,
-				isEditable: isEditing,
-				font: editorFont,
-				textColor: .white,
-				textContainerInset: CGSize(width: StickyNoteView.contentPadding, height: StickyNoteView.contentPadding),
-				onFocusChange: { focused in
-					if !focused { endEditing() }
-				},
-				onEndEditing: {
-					endEditing()
-				},
-				onMeasuredContentHeight: { window, measuredContentHeight in
-					let accessory = prayerEnabled ? prayerAccessoryHeight : 0
-					let desired = measuredContentHeight + accessory
-					updateWindowHeightConstraints(window, desiredContentHeight: desired)
-					growWindowIfNeeded(window, desiredContentHeight: desired)
-				}
-			)
-			.layoutPriority(1)
+    var body: some View {
+        VStack(spacing: 0) {
+            NativeTextView(
+                text: $text,
+                isFocused: $isTextEditorFocused,
+                isEditable: isEditing,
+                font: editorFont,
+                textColor: .white,
+                textContainerInset: CGSize(width: StickyNoteLayout.contentPadding, height: StickyNoteLayout.contentPadding),
+                onFocusChange: { focused in
+                    if !focused { endEditing() }
+                },
+                onEndEditing: {
+                    endEditing()
+                },
+                onMeasuredContentHeight: { measuredContentHeight in
+                    resizer.setMeasuredTextHeight(measuredContentHeight)
+                }
+            )
+            .layoutPriority(1)
 
-			if prayerEnabled {
-				prayerAccessoryView
-					.background {
-						GeometryReader { proxy in
-							Color.clear
-								.preference(key: PrayerAccessoryHeightPreferenceKey.self, value: proxy.size.height)
-						}
-					}
-			}
-		}
-		.onPreferenceChange(PrayerAccessoryHeightPreferenceKey.self) { prayerAccessoryHeight = $0 }
-		.onAppear {
-			if prayerEnabled {
-				prayerLocationManager.requestAccessAndLocation()
-			}
-		}
-		.onChange(of: prayerEnabled) { _, enabled in
-			if enabled {
-				prayerLocationManager.requestAccessAndLocation()
-			}
-		}
-		.frame(maxWidth: .infinity, maxHeight: .infinity)
-		.background {
-			if isWindowActive {
-				if #available(macOS 26.0, *) {
-					Color.clear
-						.glassEffect(.regular, in: .rect(cornerRadius: 16))
-				} else {
-					Rectangle().fill(.ultraThinMaterial)
-				}
-			} else {
-				Color.black.opacity(inactiveBackgroundOpacity)
-			}
-		}
-		.clipShape(RoundedRectangle(cornerRadius: 16))
-		.overlay {
-			WindowDragOverlay(enabled: !isEditing) {
-				isEditing = true
-				DispatchQueue.main.async {
-					isTextEditorFocused = true
-				}
-			}
-		}
-		.overlay(alignment: .topLeading) {
-			if isEditing {
-				HStack(alignment: .firstLineCenter) {
-					Color.clear
-						.frame(width: 1, height: editorLineHeight)
-						.accessibilityHidden(true)
-						.alignmentGuide(.firstLineCenter) { dimensions in
-							dimensions[VerticalAlignment.center]
-						}
+            if prayerEnabled {
+                prayerAccessoryView
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .preference(key: PrayerAccessoryHeightPreferenceKey.self, value: proxy.size.height)
+                        }
+                    }
+            }
+        }
+        .onPreferenceChange(PrayerAccessoryHeightPreferenceKey.self) { height in
+            resizer.setMeasuredPrayerHeight(height)
+        }
+        .onAppear {
+            resizer.setMinTextHeight(minTextContentHeight)
+            resizer.setPrayerEnabled(prayerEnabled)
+            if prayerEnabled {
+                prayerLocationManager.requestAccessAndLocation()
+            }
+        }
+        .onChange(of: prayerEnabled) { _, enabled in
+            resizer.setPrayerEnabled(enabled)
+            if enabled {
+                prayerLocationManager.requestAccessAndLocation()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            if isWindowActive {
+                if #available(macOS 26.0, *) {
+                    Color.clear
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                } else {
+                    Rectangle().fill(.ultraThinMaterial)
+                }
+            } else {
+                Color.black.opacity(inactiveBackgroundOpacity)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            WindowDragOverlay(enabled: !isEditing) {
+                isEditing = true
+                DispatchQueue.main.async {
+                    isTextEditorFocused = true
+                }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if isEditing {
+                HStack(alignment: .firstLineCenter) {
+                    Color.clear
+                        .frame(width: 1, height: editorLineHeight)
+                        .accessibilityHidden(true)
+                        .alignmentGuide(.firstLineCenter) { dimensions in
+                            dimensions[VerticalAlignment.center]
+                        }
 
-					Spacer()
+                    Spacer()
 
-					doneButton
-				}
-				.padding(.top, StickyNoteView.contentPadding)
-				.padding(.leading, StickyNoteView.contentPadding)
-				.padding(.trailing, StickyNoteView.contentPadding)
-			}
-		}
-	}
+                    doneButton
+                }
+                .padding(.top, StickyNoteLayout.contentPadding)
+                .padding(.leading, StickyNoteLayout.contentPadding)
+                .padding(.trailing, StickyNoteLayout.contentPadding)
+            }
+        }
+    }
 
-	@ViewBuilder
-	private var prayerAccessoryView: some View {
-		VStack(spacing: 0) {
-			Divider().opacity(0.25)
-			if let coordinate = prayerLocationManager.lastKnownCoordinate {
-				PrayerSectionView(coordinate: coordinate)
-			} else {
-				Text(prayerLocationPlaceholderText)
-					.font(.system(size: 13))
-					.foregroundStyle(.secondary)
-					.padding(.vertical, 10)
-					.padding(.horizontal, StickyNoteView.contentPadding)
-			}
-		}
-	}
+    @ViewBuilder
+    private var prayerAccessoryView: some View {
+        VStack(spacing: 0) {
+            Divider().opacity(0.25)
+            if let coordinate = prayerLocationManager.lastKnownCoordinate {
+                PrayerSectionView(coordinate: coordinate)
+            } else {
+                Text(prayerLocationPlaceholderText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, StickyNoteLayout.contentPadding)
+            }
+        }
+    }
 
-	private var prayerLocationPlaceholderText: String {
-		switch prayerLocationManager.authorizationStatus {
-		case .authorized, .authorizedAlways:
-			return "Getting location…"
-		case .notDetermined:
-			return "Allow location access in Settings to show prayer times."
-		case .restricted, .denied:
-			return "Location access is off. Enable it in System Settings to show prayer times."
-		@unknown default:
-			return "Location status unknown."
-		}
-	}
+    private var prayerLocationPlaceholderText: String {
+        switch prayerLocationManager.authorizationStatus {
+        case .authorized, .authorizedAlways:
+            return "Getting location…"
+        case .notDetermined:
+            return "Allow location access in Settings to show prayer times."
+        case .restricted, .denied:
+            return "Location access is off. Enable it in System Settings to show prayer times."
+        @unknown default:
+            return "Location status unknown."
+        }
+    }
 
     @ViewBuilder
     private var doneButton: some View {
@@ -512,119 +599,76 @@ struct StickyNoteView: View {
     }
 
     private func endEditing() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != text { text = trimmed }
+
         isTextEditorFocused = false
         isEditing = false
     }
-
-	private func updateWindowHeightConstraints(_ window: NSWindow, desiredContentHeight: CGFloat) {
-		let maxHeight = window.contentMaxSize.height > 0 ? window.contentMaxSize.height : desiredContentHeight
-		let clampedHeight = min(max(desiredContentHeight, combinedBaseMinContentHeight), maxHeight)
-
-        // Keep the window from being resized smaller than the content height (so you don't end up scrolling
-        // immediately after manually shrinking the window).
-        if window.contentMinSize.height != clampedHeight {
-            window.contentMinSize.height = clampedHeight
-        }
-    }
-
-	private func growWindowIfNeeded(_ window: NSWindow, desiredContentHeight: CGFloat) {
-		guard !window.inLiveResize else { return }
-
-		let minHeight = max(window.contentMinSize.height, combinedBaseMinContentHeight)
-		let maxHeight = window.contentMaxSize.height > 0 ? window.contentMaxSize.height : desiredContentHeight
-		let clampedHeight = min(max(desiredContentHeight, minHeight), maxHeight)
-
-        let currentContentHeight = window.contentRect(forFrameRect: window.frame).height
-        guard clampedHeight > currentContentHeight + 1 else { return }
-
-        let currentContentWidth = window.contentRect(forFrameRect: window.frame).width
-        let targetContentRect = NSRect(origin: .zero, size: NSSize(width: currentContentWidth, height: clampedHeight))
-        let targetFrameHeight = window.frameRect(forContentRect: targetContentRect).height
-
-        var newFrame = window.frame
-        let delta = targetFrameHeight - newFrame.size.height
-        newFrame.origin.y -= delta
-        newFrame.size.height = targetFrameHeight
-        window.setFrame(newFrame, display: true, animate: true)
-	}
 }
 
-private struct PrayerAccessoryHeightPreferenceKey: PreferenceKey {
-	static var defaultValue: CGFloat = 0
-	static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
+// MARK: - Window Controller
 
-// Controls the sticky note window itself
-class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
+final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
     private static let minWidth: CGFloat = 260
     private static let maxWidth: CGFloat = 520
-    private static let minLines: CGFloat = 2
-    private static let maxLines: CGFloat = 24
 
-    private static var lineHeight: CGFloat {
-        let font = NSFont.systemFont(ofSize: StickyNoteView.fontSize)
-        return ceil(font.ascender + abs(font.descender) + font.leading)
-    }
-
-    private static func contentHeight(lines: CGFloat) -> CGFloat {
-        ceil(StickyNoteView.contentPadding * 2 + lineHeight * lines)
-    }
-
-    private static let minContentSize: NSSize = {
-        NSSize(width: minWidth, height: contentHeight(lines: minLines))
-    }()
-
-	private static let maxAccessoryHeight: CGFloat = 80
-	private static let maxContentSize: NSSize = {
-		NSSize(width: maxWidth, height: contentHeight(lines: maxLines) + maxAccessoryHeight)
-	}()
+    private let resizer = StickyNoteWindowResizer()
 
     init() {
-        let hosting = NSHostingController(rootView: StickyNoteView())
-        // Prevent SwiftUI's content from driving the window size when the view hierarchy changes
-        // (e.g. toggling between read/edit modes).
+        let hosting = NSHostingController(rootView: StickyNoteView(resizer: resizer))
         hosting.sizingOptions = []
+
         let window = StickyNoteWindow(contentViewController: hosting)
         window.title = "Sticky Note"
-        window.setContentSize(Self.minContentSize)
-        window.contentMinSize = Self.minContentSize
-        window.contentMaxSize = Self.maxContentSize
+
+        let font = NSFont.systemFont(ofSize: StickyNoteLayout.fontSize)
+        let lineHeight = ceil(font.ascender + abs(font.descender) + font.leading)
+        let minHeight = ceil(StickyNoteLayout.contentPadding * 2 + lineHeight * StickyNoteLayout.minVisibleLines)
+
+        window.setContentSize(NSSize(width: Self.minWidth, height: minHeight))
+        window.contentMinSize = NSSize(width: Self.minWidth, height: minHeight)
+        window.contentMaxSize = NSSize(width: Self.maxWidth, height: .greatestFiniteMagnitude)
+
         window.isReleasedWhenClosed = false
         window.isRestorable = false
-        // Removes title bar and window controls for a cleaner sticky note appearance
         window.styleMask = [.borderless, .resizable, .fullSizeContentView]
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenNone]
         window.isOpaque = false
         window.backgroundColor = .clear
+
         super.init(window: window)
+
         window.delegate = self
+        resizer.attach(window: window)
     }
+
     required init?(coder: NSCoder) { super.init(coder: coder) }
 
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        // Width limits are fixed; height minimum is dynamic (tracks text content).
-        let minContent = NSSize(width: Self.minContentSize.width, height: sender.contentMinSize.height)
-        let maxContent = NSSize(width: Self.maxContentSize.width, height: sender.contentMaxSize.height)
-        let minFrame = sender.frameRect(forContentRect: NSRect(origin: .zero, size: minContent)).size
-        let maxFrame = sender.frameRect(forContentRect: NSRect(origin: .zero, size: maxContent)).size
+        let minContent = NSSize(width: Self.minWidth, height: 1)
+        let maxContent = NSSize(width: Self.maxWidth, height: 1)
 
-        return NSSize(
-            width: min(max(frameSize.width, minFrame.width), maxFrame.width),
-            height: min(max(frameSize.height, minFrame.height), maxFrame.height)
-        )
+        let minFrameWidth = sender.frameRect(forContentRect: NSRect(origin: .zero, size: minContent)).width
+        let maxFrameWidth = sender.frameRect(forContentRect: NSRect(origin: .zero, size: maxContent)).width
+
+        let clampedWidth = min(max(frameSize.width, minFrameWidth), maxFrameWidth)
+        let lockedHeight = sender.frame.size.height
+
+        return NSSize(width: clampedWidth, height: lockedHeight)
     }
 
     func showStickyNote() {
-        self.window?.makeKeyAndOrderFront(nil)
+        window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     var isStickyNoteVisible: Bool {
-        self.window?.isVisible ?? false
+        window?.isVisible ?? false
     }
 
     func hideStickyNote() {
-        self.window?.orderOut(nil)
+        window?.orderOut(nil)
     }
 }
