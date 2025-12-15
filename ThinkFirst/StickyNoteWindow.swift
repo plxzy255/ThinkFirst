@@ -6,51 +6,14 @@ import Combine
 import CoreLocation
 import SwiftUI
 
-// MARK: - Done Button Style
-
-enum DoneButtonStyle: String, CaseIterable, Identifiable {
-    case automatic = "Automatic"
-    case bordered = "Bordered"
-    case borderedProminent = "Bordered Prominent"
-    case glass = "Glass"
-    case glassProminent = "Glass Prominent"
-
-    var id: String { rawValue }
-}
-
-private struct DoneButtonStyleKey: EnvironmentKey {
-    static let defaultValue: DoneButtonStyle = .glassProminent
-}
-
-extension EnvironmentValues {
-    var doneButtonStyle: DoneButtonStyle {
-        get { self[DoneButtonStyleKey.self] }
-        set { self[DoneButtonStyleKey.self] = newValue }
-    }
-}
-
-extension View {
-    func doneButtonStyle(_ style: DoneButtonStyle) -> some View {
-        environment(\.doneButtonStyle, style)
-    }
-}
-
-private extension VerticalAlignment {
-    private enum FirstLineCenter: AlignmentID {
-        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
-            dimensions[VerticalAlignment.center]
-        }
-    }
-
-    static let firstLineCenter = VerticalAlignment(FirstLineCenter.self)
-}
-
 // MARK: - Layout Constants
 
 enum StickyNoteLayout {
     static let contentPadding: CGFloat = 16
     static let fontSize: CGFloat = 18
     static let minVisibleLines: CGFloat = 2
+    static let controlsExtraTopPadding: CGFloat = 18
+    static let controlsButtonInset: CGFloat = 10
 }
 
 // MARK: - Window + Resizing
@@ -67,6 +30,8 @@ final class StickyNoteWindowResizer: ObservableObject {
     private var measuredTextHeight: CGFloat = 0
     private var measuredPrayerHeight: CGFloat = 0
     private var minTextHeight: CGFloat = 0
+    private var textTopPadding: CGFloat = 0
+    private var textBottomPadding: CGFloat = 0
 
     private var lastAppliedContentHeight: CGFloat = 0
     private var pendingApply: Bool = false
@@ -86,6 +51,13 @@ final class StickyNoteWindowResizer: ObservableObject {
 
     func setMinTextHeight(_ height: CGFloat) {
         minTextHeight = height
+        scheduleApply()
+    }
+
+    func setTextPadding(top: CGFloat, bottom: CGFloat) {
+        if textTopPadding == top, textBottomPadding == bottom { return }
+        textTopPadding = top
+        textBottomPadding = bottom
         scheduleApply()
     }
 
@@ -114,7 +86,7 @@ final class StickyNoteWindowResizer: ObservableObject {
 
         let textHeight = max(measuredTextHeight, minTextHeight)
         let prayerHeight = isPrayerEnabled ? measuredPrayerHeight : 0
-        let desiredContentHeight = ceil(textHeight + prayerHeight)
+        let desiredContentHeight = ceil(textTopPadding + textHeight + textBottomPadding + prayerHeight)
 
         guard desiredContentHeight.isFinite, desiredContentHeight > 0 else { return }
         guard abs(desiredContentHeight - lastAppliedContentHeight) > 0.5 else { return }
@@ -284,7 +256,7 @@ private struct NativeTextView: NSViewRepresentable {
         let usedHeight = layoutManager.usedRect(for: textContainer).height
         let font = textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let lineHeight = layoutManager.defaultLineHeight(for: font)
-        return ceil(max(usedHeight, lineHeight) + textView.textContainerInset.height * 2)
+        return ceil(max(usedHeight, lineHeight))
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -427,7 +399,6 @@ struct StickyNoteView: View {
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
 
-    @Environment(\.doneButtonStyle) private var doneButtonStyle
     @Environment(\.controlActiveState) private var controlActiveState
 
     @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
@@ -439,7 +410,7 @@ struct StickyNoteView: View {
 
     private var minTextContentHeight: CGFloat {
         let lineHeight = ceil(editorLineHeight)
-        return ceil(StickyNoteLayout.contentPadding * 2 + lineHeight * StickyNoteLayout.minVisibleLines)
+        return ceil(lineHeight * StickyNoteLayout.minVisibleLines)
     }
 
     private var isWindowActive: Bool { controlActiveState == .key }
@@ -451,6 +422,10 @@ struct StickyNoteView: View {
     }
 
     var body: some View {
+        let controlsAreVisible = isEditing || (isWindowActive && !isEditing)
+        let textTopPadding = StickyNoteLayout.contentPadding + (controlsAreVisible ? StickyNoteLayout.controlsExtraTopPadding : 0)
+        let textBottomPadding = StickyNoteLayout.contentPadding
+
         VStack(spacing: 0) {
             NativeTextView(
                 text: $text,
@@ -458,7 +433,7 @@ struct StickyNoteView: View {
                 isEditable: isEditing,
                 font: editorFont,
                 textColor: .white,
-                textContainerInset: CGSize(width: StickyNoteLayout.contentPadding, height: StickyNoteLayout.contentPadding),
+                textContainerInset: .zero,
                 onFocusChange: { focused in
                     if !focused { endEditing() }
                 },
@@ -469,6 +444,10 @@ struct StickyNoteView: View {
                     resizer.setMeasuredTextHeight(measuredContentHeight)
                 }
             )
+            .padding(.top, textTopPadding)
+            .padding(.bottom, textBottomPadding)
+            .padding(.leading, StickyNoteLayout.contentPadding)
+            .padding(.trailing, StickyNoteLayout.contentPadding)
             .layoutPriority(1)
 
             if prayerEnabled {
@@ -486,10 +465,17 @@ struct StickyNoteView: View {
         }
         .onAppear {
             resizer.setMinTextHeight(minTextContentHeight)
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             resizer.setPrayerEnabled(prayerEnabled)
             if prayerEnabled {
                 prayerLocationManager.requestAccessAndLocation()
             }
+        }
+        .onChange(of: isEditing) { _, _ in
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
+        }
+        .onChange(of: controlActiveState) { _, _ in
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
         }
         .onChange(of: prayerEnabled) { _, enabled in
             resizer.setPrayerEnabled(enabled)
@@ -519,23 +505,15 @@ struct StickyNoteView: View {
                 }
             }
         }
-        .overlay(alignment: .topLeading) {
+        .overlay(alignment: .topTrailing) {
             if isEditing {
-                HStack(alignment: .firstLineCenter) {
-                    Color.clear
-                        .frame(width: 1, height: editorLineHeight)
-                        .accessibilityHidden(true)
-                        .alignmentGuide(.firstLineCenter) { dimensions in
-                            dimensions[VerticalAlignment.center]
-                        }
-
-                    Spacer()
-
-                    doneButton
-                }
-                .padding(.top, StickyNoteLayout.contentPadding)
-                .padding(.leading, StickyNoteLayout.contentPadding)
-                .padding(.trailing, StickyNoteLayout.contentPadding)
+                doneButton
+                    .padding(.top, StickyNoteLayout.controlsButtonInset)
+                    .padding(.trailing, StickyNoteLayout.controlsButtonInset)
+            } else if isWindowActive {
+                settingsButton
+                    .padding(.top, StickyNoteLayout.controlsButtonInset)
+                    .padding(.trailing, StickyNoteLayout.controlsButtonInset)
             }
         }
     }
@@ -569,33 +547,29 @@ struct StickyNoteView: View {
         }
     }
 
-    @ViewBuilder
     private var doneButton: some View {
-        switch doneButtonStyle {
-        case .automatic:
-            baseDoneButton.buttonStyle(.automatic)
-        case .bordered:
-            baseDoneButton.buttonStyle(.bordered)
-        case .borderedProminent:
-            baseDoneButton.buttonStyle(.borderedProminent)
-        case .glass:
-            baseDoneButton.buttonStyle(.glass)
-        case .glassProminent:
-            baseDoneButton.buttonStyle(.glassProminent)
-        }
-    }
-
-    private var baseDoneButton: some View {
         Button {
             endEditing()
         } label: {
-            Text("Done")
+            Label("Done", systemImage: "checkmark.circle.fill")
+                .labelStyle(.iconOnly)
         }
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
         .tint(.accentColor)
-        .controlSize(.small)
-        .alignmentGuide(.firstLineCenter) { dimensions in
-            dimensions[VerticalAlignment.center]
+        .accessibilityLabel("Done")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            SettingsPanelController.shared.show()
+        } label: {
+            Label("Settings", systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
         }
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
+        .accessibilityLabel("Settings")
     }
 
     private func endEditing() {
