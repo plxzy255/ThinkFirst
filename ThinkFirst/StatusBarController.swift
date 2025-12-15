@@ -33,8 +33,9 @@ final class SettingsPanelController: NSWindowController {
 
     func show() {
         guard let window else { return }
-        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -110,6 +111,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func showSettings() {
-        settingsPanelController.show()
+        // Showing a window while the status bar menu is tracking can fail to reveal it reliably.
+        // Defer to the next run loop so the menu has closed first.
+        DispatchQueue.main.async { [weak self] in
+            self?.settingsPanelController.show()
+        }
     }
 }
