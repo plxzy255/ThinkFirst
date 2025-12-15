@@ -335,6 +335,7 @@ struct StickyNoteView: View {
     private static let minLines: CGFloat = 2
 
     @AppStorage("stickyNoteText") private var text: String = ""
+    @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
     @Environment(\.doneButtonStyle) private var doneButtonStyle
@@ -374,7 +375,7 @@ struct StickyNoteView: View {
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.7))
+        .background(Color.black.opacity(backgroundOpacity))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
             WindowDragOverlay(enabled: !isEditing) {

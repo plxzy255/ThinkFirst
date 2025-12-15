@@ -7,6 +7,7 @@ private enum PreviewStorage {
             "Buy milk Call dentist Ship package test ",
             forKey: "stickyNoteText"
         )
+        defaults.set(0.7, forKey: "stickyNoteBackgroundOpacity")
         return defaults
     }()
 }
@@ -118,6 +119,7 @@ private struct PlaygroundBackdrop: View {
 
 private struct StickyNoteDoneButtonPlayground: View {
     @State private var doneStyle: DoneButtonStyle = .glassProminent
+    @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
     private let backdrop = PlaygroundBackdropSpec.random(width: 260, height: 180)
 
     var body: some View {
@@ -126,6 +128,11 @@ private struct StickyNoteDoneButtonPlayground: View {
                 ForEach(DoneButtonStyle.allCases) { style in
                     Text(style.rawValue).tag(style)
                 }
+            }
+
+            HStack {
+                Text("Background opacity")
+                Slider(value: $backgroundOpacity, in: 0...1)
             }
 
             ZStack {
@@ -137,12 +144,18 @@ private struct StickyNoteDoneButtonPlayground: View {
                 StickyNoteView()
                 #endif
             }
-            .defaultAppStorage(PreviewStorage.defaults)
             .doneButtonStyle(doneStyle)
-            .frame(width: 260, height: 180)
+            .frame(width: 260, height: 100)
         }
         .padding()
         .frame(width: 320)
+    }
+}
+
+private struct StickyNotePlaygroundPreviewRoot: View {
+    var body: some View {
+        StickyNoteDoneButtonPlayground()
+            .defaultAppStorage(PreviewStorage.defaults)
     }
 }
 
@@ -151,5 +164,5 @@ private struct StickyNoteDoneButtonPlayground: View {
 }
 
 #Preview("Sticky Note Playground") {
-    StickyNoteDoneButtonPlayground()
+    StickyNotePlaygroundPreviewRoot()
 }
