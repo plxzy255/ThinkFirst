@@ -4,7 +4,7 @@ private enum PreviewStorage {
     static let defaults: UserDefaults = {
         let defaults = UserDefaults(suiteName: "ThinkFirst.StickyNote.Previews")!
         defaults.set(
-            "Buy milk\nCall dentist\nShip package",
+            "Buy milk Call dentist Ship package test ",
             forKey: "stickyNoteText"
         )
         return defaults
