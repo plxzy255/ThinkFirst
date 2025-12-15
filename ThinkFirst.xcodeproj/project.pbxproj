@@ -11,7 +11,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		F762AABB2EF037B90097D7F4 /* PrayerKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = PrayerKit; path = ../PrayerKit; sourceTree = SOURCE_ROOT; };
 		F7BE3D382EEF9E9D00FB648F /* ThinkFirst.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ThinkFirst.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -38,7 +37,6 @@
 		F7BE3D2F2EEF9E9D00FB648F = {
 			isa = PBXGroup;
 			children = (
-				F762AABB2EF037B90097D7F4 /* PrayerKit */,
 				F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */,
 				F7BE3D392EEF9E9D00FB648F /* Products */,
 			);
@@ -103,7 +101,7 @@
 			mainGroup = F7BE3D2F2EEF9E9D00FB648F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				7B02EF16FC3449DCA86B15E6 /* XCLocalSwiftPackageReference "../PrayerKit" */,
+				7B02EF16FC3449DCA86B15E6 /* XCRemoteSwiftPackageReference "PrayerKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F7BE3D392EEF9E9D00FB648F /* Products */;
@@ -355,17 +353,21 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		7B02EF16FC3449DCA86B15E6 /* XCLocalSwiftPackageReference "../PrayerKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../PrayerKit;
+/* Begin XCRemoteSwiftPackageReference section */
+		7B02EF16FC3449DCA86B15E6 /* XCRemoteSwiftPackageReference "PrayerKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "git@github.com:plxzy255/PrayerKit.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		16E465BD2D5C4136950285D5 /* PrayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 7B02EF16FC3449DCA86B15E6 /* XCLocalSwiftPackageReference "../PrayerKit" */;
+			package = 7B02EF16FC3449DCA86B15E6 /* XCRemoteSwiftPackageReference "PrayerKit" */;
 			productName = PrayerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
