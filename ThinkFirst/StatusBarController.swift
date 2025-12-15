@@ -14,6 +14,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let backgroundSubmenu = NSMenu()
     private let backgroundSolidItem = NSMenuItem(title: "Solid", action: #selector(setBackgroundSolid), keyEquivalent: "")
     private let backgroundLiquidGlassItem = NSMenuItem(title: "Liquid Glass", action: #selector(setBackgroundLiquidGlass), keyEquivalent: "")
+    private let opacityMenuItem = NSMenuItem(title: "Opacity", action: nil, keyEquivalent: "")
+    private let opacityViewController = OpacityMenuItemController()
 
     override init() {
         super.init()
@@ -36,6 +38,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         backgroundSubmenu.addItem(backgroundLiquidGlassItem)
         backgroundMenuItem.submenu = backgroundSubmenu
         statusMenu.addItem(backgroundMenuItem)
+
+        opacityMenuItem.view = opacityViewController.view
+        statusMenu.addItem(opacityMenuItem)
         statusMenu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
@@ -59,6 +64,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         updateToggleVisibilityTitle()
         updateBackgroundMenuState()
+        opacityViewController.syncFromDefaults()
     }
 
     private func updateToggleVisibilityTitle() {
@@ -100,5 +106,68 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+}
+
+private final class OpacityMenuItemController {
+    let view: NSView
+    private let slider: NSSlider
+    private let valueLabel: NSTextField
+
+    init() {
+        slider = NSSlider(value: 0.7, minValue: 0.0, maxValue: 1.0, target: nil, action: nil)
+        slider.isContinuous = true
+
+        valueLabel = NSTextField(labelWithString: "")
+        valueLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        valueLabel.textColor = .secondaryLabelColor
+        valueLabel.alignment = .right
+
+        let titleLabel = NSTextField(labelWithString: "Opacity")
+        titleLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        titleLabel.textColor = .secondaryLabelColor
+
+        let header = NSStackView(views: [titleLabel, valueLabel])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.distribution = .fill
+
+        let stack = NSStackView(views: [header, slider])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 44))
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+        ])
+
+        slider.target = self
+        slider.action = #selector(sliderChanged(_:))
+
+        syncFromDefaults()
+    }
+
+    func syncFromDefaults() {
+        let stored = UserDefaults.standard.object(forKey: "stickyNoteBackgroundOpacity") as? Double
+        let value = stored ?? 0.7
+        slider.doubleValue = value
+        updateValueLabel(value)
+    }
+
+    @objc private func sliderChanged(_ sender: NSSlider) {
+        let value = sender.doubleValue
+        UserDefaults.standard.set(value, forKey: "stickyNoteBackgroundOpacity")
+        updateValueLabel(value)
+    }
+
+    private func updateValueLabel(_ value: Double) {
+        valueLabel.stringValue = "\(Int((value * 100).rounded()))%"
     }
 }
