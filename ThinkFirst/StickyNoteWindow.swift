@@ -4,9 +4,150 @@
 import SwiftUI
 import AppKit
 
+enum DoneButtonStyle: String, CaseIterable, Identifiable {
+    case automatic = "Automatic"
+    case bordered = "Bordered"
+    case borderedProminent = "Bordered Prominent"
+    case glass = "Glass"
+    case glassProminent = "Glass Prominent"
+
+    var id: String { rawValue }
+}
+
+private struct DoneButtonStyleKey: EnvironmentKey {
+    static let defaultValue: DoneButtonStyle = .glassProminent
+}
+
+extension EnvironmentValues {
+    var doneButtonStyle: DoneButtonStyle {
+        get { self[DoneButtonStyleKey.self] }
+        set { self[DoneButtonStyleKey.self] = newValue }
+    }
+}
+
+extension View {
+    func doneButtonStyle(_ style: DoneButtonStyle) -> some View {
+        environment(\.doneButtonStyle, style)
+    }
+}
+
+private extension VerticalAlignment {
+    private enum FirstLineCenter: AlignmentID {
+        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
+            dimensions[VerticalAlignment.center]
+        }
+    }
+
+    static let firstLineCenter = VerticalAlignment(FirstLineCenter.self)
+}
+
 private final class StickyNoteWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+private struct NativeTextView: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+
+    var font: NSFont
+    var textColor: NSColor
+    var textContainerInset: CGSize
+    var onFocusChange: ((Bool) -> Void)? = nil
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = CallbackTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.usesFindPanel = false
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.font = font
+        textView.textColor = textColor
+        textView.string = text
+        textView.textContainerInset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
+        textView.textContainer?.lineFragmentPadding = 0
+
+        textView.onFocusChange = { focused in
+            DispatchQueue.main.async {
+                isFocused = focused
+                onFocusChange?(focused)
+            }
+        }
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = nsView.documentView as? CallbackTextView else { return }
+
+        if textView.string != text {
+            textView.string = text
+        }
+
+        if textView.font != font { textView.font = font }
+        if textView.textColor != textColor { textView.textColor = textColor }
+
+        let inset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
+        if textView.textContainerInset != inset { textView.textContainerInset = inset }
+        textView.textContainer?.lineFragmentPadding = 0
+
+        // Manage focus explicitly since SwiftUI FocusState doesn't apply to NSTextView.
+        if isFocused {
+            if nsView.window?.firstResponder !== textView {
+                nsView.window?.makeFirstResponder(textView)
+            }
+        } else {
+            if nsView.window?.firstResponder === textView {
+                nsView.window?.makeFirstResponder(nil)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text = textView.string
+        }
+    }
+
+    final class CallbackTextView: NSTextView {
+        var onFocusChange: (Bool) -> Void = { _ in }
+
+        override func becomeFirstResponder() -> Bool {
+            let became = super.becomeFirstResponder()
+            if became { onFocusChange(true) }
+            return became
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let resigned = super.resignFirstResponder()
+            if resigned { onFocusChange(false) }
+            return resigned
+        }
+    }
 }
 
 private struct WindowDragOverlay: NSViewRepresentable {
@@ -53,25 +194,40 @@ private struct WindowDragOverlay: NSViewRepresentable {
 struct StickyNoteView: View {
     @AppStorage("stickyNoteText") private var text: String = ""
     @State private var isEditing: Bool = false
-    @FocusState private var isTextEditorFocused: Bool
+    @State private var isTextEditorFocused: Bool = false
+    @Environment(\.doneButtonStyle) private var doneButtonStyle
+    private let contentPadding: CGFloat = 16
+    private let editorFont: NSFont = .systemFont(ofSize: 18)
+    private var editorLineHeight: CGFloat {
+        editorFont.ascender + abs(editorFont.descender) + editorFont.leading
+    }
+
+#if DEBUG
+    init(previewIsEditing: Bool = false) {
+        _isEditing = State(initialValue: previewIsEditing)
+        _isTextEditorFocused = State(initialValue: previewIsEditing)
+    }
+#endif
 
     var body: some View {
         Group {
             if isEditing {
-                TextEditor(text: $text)
-                    .focused($isTextEditorFocused)
-                    .onChange(of: isTextEditorFocused) { _, focused in
+                NativeTextView(
+                    text: $text,
+                    isFocused: $isTextEditorFocused,
+                    font: editorFont,
+                    textColor: .white,
+                    textContainerInset: CGSize(width: contentPadding, height: contentPadding),
+                    onFocusChange: { focused in
                         if !focused { isEditing = false }
                     }
-                    .padding()
+                )
                     .frame(minWidth: 250, minHeight: 160)
                     .background(Color.black.opacity(0.7))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .font(.system(size: 18))
-                    .scrollContentBackground(.hidden)
             } else {
                 Text(text)
-                    .padding()
+                    .padding(contentPadding)
                     .frame(minWidth: 250, minHeight: 160, alignment: .topLeading)
                     .background(Color.black.opacity(0.7))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -86,19 +242,55 @@ struct StickyNoteView: View {
                 }
             }
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             if isEditing {
-                Button {
-                    // End editing and dismiss focus
-                    isTextEditorFocused = false
-                    isEditing = false
-                } label: {
-                    Text("Done")
+                HStack(alignment: .firstLineCenter) {
+                    Color.clear
+                        .frame(width: 1, height: editorLineHeight)
+                        .accessibilityHidden(true)
+                        .alignmentGuide(.firstLineCenter) { dimensions in
+                            dimensions[VerticalAlignment.center]
+                        }
+
+                    Spacer()
+
+                    doneButton
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .padding(8)
+                .padding(.top, contentPadding)
+                .padding(.leading, contentPadding)
+                .padding(.trailing, contentPadding)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var doneButton: some View {
+        switch doneButtonStyle {
+        case .automatic:
+            baseDoneButton.buttonStyle(.automatic)
+        case .bordered:
+            baseDoneButton.buttonStyle(.bordered)
+        case .borderedProminent:
+            baseDoneButton.buttonStyle(.borderedProminent)
+        case .glass:
+            baseDoneButton.buttonStyle(.glass)
+        case .glassProminent:
+            baseDoneButton.buttonStyle(.glassProminent)
+        }
+    }
+
+    private var baseDoneButton: some View {
+        Button {
+            // End editing and dismiss focus
+            isTextEditorFocused = false
+            isEditing = false
+        } label: {
+            Text("Done")
+        }
+        .tint(.accentColor)
+        .controlSize(.small)
+        .alignmentGuide(.firstLineCenter) { dimensions in
+            dimensions[VerticalAlignment.center]
         }
     }
 }
@@ -127,4 +319,3 @@ class StickyNoteWindowController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
-
