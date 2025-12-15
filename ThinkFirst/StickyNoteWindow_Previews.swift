@@ -45,8 +45,8 @@ private struct EmojiSpec: Identifiable {
     let id = UUID()
     let emoji: String
     let size: CGFloat
-    let x: CGFloat
-    let y: CGFloat
+    let xFrac: CGFloat
+    let yFrac: CGFloat
 }
 
 private struct PlaygroundBackdropSpec {
@@ -54,7 +54,7 @@ private struct PlaygroundBackdropSpec {
     let colorB: Color
     let emojis: [EmojiSpec]
 
-    static func random(width: CGFloat, height: CGFloat, count: Int = 12) -> PlaygroundBackdropSpec {
+    static func random(count: Int = 28) -> PlaygroundBackdropSpec {
         func randColor() -> Color {
             Color(
                 red: .random(in: 0...1),
@@ -80,8 +80,8 @@ private struct PlaygroundBackdropSpec {
             EmojiSpec(
                 emoji: emojiPool.randomElement()!,
                 size: .random(in: 18...42),
-                x: .random(in: 0...width),
-                y: .random(in: 0...height)
+                xFrac: .random(in: 0...1),
+                yFrac: .random(in: 0...1)
             )
         }
 
@@ -97,21 +97,26 @@ private struct PlaygroundBackdrop: View {
     let spec: PlaygroundBackdropSpec
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [spec.colorA, spec.colorB],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        GeometryReader { proxy in
+            ZStack {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [spec.colorA, spec.colorB],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
 
-            ForEach(spec.emojis) { e in
-                Text(e.emoji)
-                    .font(.system(size: e.size))
-                    .opacity(0.35)
-                    .position(x: e.x, y: e.y)
+                ForEach(spec.emojis) { e in
+                    Text(e.emoji)
+                        .font(.system(size: e.size))
+                        .opacity(0.35)
+                        .position(
+                            x: e.xFrac * proxy.size.width,
+                            y: e.yFrac * proxy.size.height
+                        )
+                }
             }
         }
     }
@@ -120,7 +125,9 @@ private struct PlaygroundBackdrop: View {
 private struct StickyNoteDoneButtonPlayground: View {
     @State private var doneStyle: DoneButtonStyle = .glassProminent
     @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
-    private let backdrop = PlaygroundBackdropSpec.random(width: 260, height: 180)
+    private static let noteSize = CGSize(width: 260, height: 100)
+    private static let backdropSize = CGSize(width: 700, height: 450)
+    private let backdrop = PlaygroundBackdropSpec.random()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -129,26 +136,43 @@ private struct StickyNoteDoneButtonPlayground: View {
                     Text(style.rawValue).tag(style)
                 }
             }
+            .zIndex(1)
 
             HStack {
                 Text("Background opacity")
                 Slider(value: $backgroundOpacity, in: 0...1)
+                    .frame(width: 160)
             }
+            .zIndex(1)
 
-            ZStack {
-                PlaygroundBackdrop(spec: backdrop)
-
-                #if DEBUG
-                StickyNoteView(previewIsEditing: true)
-                #else
-                StickyNoteView()
-                #endif
+            HStack {
+                Spacer(minLength: 0)
+                Group {
+                    #if DEBUG
+                    StickyNoteView(previewIsEditing: true)
+                    #else
+                    StickyNoteView()
+                    #endif
+                }
+                .frame(
+                    width: StickyNoteDoneButtonPlayground.noteSize.width,
+                    height: StickyNoteDoneButtonPlayground.noteSize.height
+                )
+                .background {
+                    PlaygroundBackdrop(spec: backdrop)
+                        .frame(
+                            width: StickyNoteDoneButtonPlayground.backdropSize.width,
+                            height: StickyNoteDoneButtonPlayground.backdropSize.height
+                        )
+                        .allowsHitTesting(false)
+                }
+                .doneButtonStyle(doneStyle)
+                Spacer(minLength: 0)
             }
-            .doneButtonStyle(doneStyle)
-            .frame(width: 260, height: 100)
+            .zIndex(0)
         }
         .padding()
-        .frame(width: 320)
+        .frame(width: 420, height: 300, alignment: .topLeading)
     }
 }
 

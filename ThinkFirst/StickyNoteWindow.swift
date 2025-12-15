@@ -14,6 +14,13 @@ enum DoneButtonStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private enum StickyNoteBackgroundStyle: String, CaseIterable, Identifiable {
+    case solid = "Solid"
+    case liquidGlass = "Liquid Glass"
+
+    var id: String { rawValue }
+}
+
 private struct DoneButtonStyleKey: EnvironmentKey {
     static let defaultValue: DoneButtonStyle = .glassProminent
 }
@@ -335,6 +342,7 @@ struct StickyNoteView: View {
     private static let minLines: CGFloat = 2
 
     @AppStorage("stickyNoteText") private var text: String = ""
+    @AppStorage("stickyNoteBackgroundStyle") private var backgroundStyleRaw: String = StickyNoteBackgroundStyle.solid.rawValue
     @AppStorage("stickyNoteBackgroundOpacity") private var backgroundOpacity: Double = 0.7
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
@@ -346,6 +354,10 @@ struct StickyNoteView: View {
     private var baseMinContentHeight: CGFloat {
         let lineHeight = ceil(editorLineHeight)
         return ceil(StickyNoteView.contentPadding * 2 + lineHeight * StickyNoteView.minLines)
+    }
+
+    private var backgroundStyle: StickyNoteBackgroundStyle {
+        StickyNoteBackgroundStyle(rawValue: backgroundStyleRaw) ?? .solid
     }
 
 #if DEBUG
@@ -375,7 +387,23 @@ struct StickyNoteView: View {
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(backgroundOpacity))
+        .background {
+            switch backgroundStyle {
+            case .solid:
+                Color.black.opacity(backgroundOpacity)
+            case .liquidGlass:
+                if #available(macOS 26.0, *) {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .glassEffect()
+                        .opacity(backgroundOpacity)
+                } else {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(backgroundOpacity)
+                }
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
             WindowDragOverlay(enabled: !isEditing) {
