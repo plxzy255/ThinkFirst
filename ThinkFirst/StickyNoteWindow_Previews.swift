@@ -40,8 +40,85 @@ private struct DoneButtonStyleGallery: View {
     }
 }
 
+private struct EmojiSpec: Identifiable {
+    let id = UUID()
+    let emoji: String
+    let size: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+}
+
+private struct PlaygroundBackdropSpec {
+    let colorA: Color
+    let colorB: Color
+    let emojis: [EmojiSpec]
+
+    static func random(width: CGFloat, height: CGFloat, count: Int = 12) -> PlaygroundBackdropSpec {
+        func randColor() -> Color {
+            Color(
+                red: .random(in: 0...1),
+                green: .random(in: 0...1),
+                blue: .random(in: 0...1)
+            )
+        }
+
+        let e1 = "😀"
+        let e2 = "🟣"
+        let e3 = "🟢"
+        let e4 = "🔵"
+        let e5 = "🟡"
+        let e6 = "⭐️"
+        let e7 = "🍕"
+        let e8 = "🚀"
+        let e9 = "🌈"
+        let e10 = "🧠"
+        let e11 = "🔥"
+        let e12 = "👀"
+        let emojiPool: [String] = [e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12]
+        let emojis: [EmojiSpec] = (0..<count).map { _ in
+            EmojiSpec(
+                emoji: emojiPool.randomElement()!,
+                size: .random(in: 18...42),
+                x: .random(in: 0...width),
+                y: .random(in: 0...height)
+            )
+        }
+
+        return PlaygroundBackdropSpec(
+            colorA: randColor(),
+            colorB: randColor(),
+            emojis: emojis
+        )
+    }
+}
+
+private struct PlaygroundBackdrop: View {
+    let spec: PlaygroundBackdropSpec
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [spec.colorA, spec.colorB],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            ForEach(spec.emojis) { e in
+                Text(e.emoji)
+                    .font(.system(size: e.size))
+                    .opacity(0.35)
+                    .position(x: e.x, y: e.y)
+            }
+        }
+    }
+}
+
 private struct StickyNoteDoneButtonPlayground: View {
     @State private var doneStyle: DoneButtonStyle = .glassProminent
+    private let backdrop = PlaygroundBackdropSpec.random(width: 260, height: 180)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -51,7 +128,9 @@ private struct StickyNoteDoneButtonPlayground: View {
                 }
             }
 
-            Group {
+            ZStack {
+                PlaygroundBackdrop(spec: backdrop)
+
                 #if DEBUG
                 StickyNoteView(previewIsEditing: true)
                 #else
