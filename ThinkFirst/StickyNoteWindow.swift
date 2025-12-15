@@ -320,9 +320,10 @@ struct StickyNoteView: View {
     static let fontSize: CGFloat = 18
     private static let minLines: CGFloat = 2
 
-    @AppStorage("stickyNoteText") private var text: String = ""
+    @State private var text: String
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
+    @State private var pendingSaveTask: Task<Void, Never>? = nil
     @Environment(\.doneButtonStyle) private var doneButtonStyle
     private let editorFont: NSFont = .systemFont(ofSize: StickyNoteView.fontSize)
     private var editorLineHeight: CGFloat {
@@ -333,8 +334,13 @@ struct StickyNoteView: View {
         return ceil(StickyNoteView.contentPadding * 2 + lineHeight * StickyNoteView.minLines)
     }
 
+    init() {
+        _text = State(initialValue: UserDefaults.standard.string(forKey: "stickyNoteText") ?? "")
+    }
+
 #if DEBUG
     init(previewIsEditing: Bool = false) {
+        _text = State(initialValue: UserDefaults.standard.string(forKey: "stickyNoteText") ?? "")
         _isEditing = State(initialValue: previewIsEditing)
         _isTextEditorFocused = State(initialValue: previewIsEditing)
     }
@@ -362,6 +368,9 @@ struct StickyNoteView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .onChange(of: text) { _, _ in
+            schedulePersistText()
+        }
         .overlay {
             WindowDragOverlay(enabled: !isEditing) {
                 isEditing = true
@@ -423,6 +432,24 @@ struct StickyNoteView: View {
     private func endEditing() {
         isTextEditorFocused = false
         isEditing = false
+        persistTextNow()
+    }
+
+    private func schedulePersistText() {
+        pendingSaveTask?.cancel()
+        let snapshot = text
+        pendingSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                UserDefaults.standard.set(snapshot, forKey: "stickyNoteText")
+            }
+        }
+    }
+
+    private func persistTextNow() {
+        pendingSaveTask?.cancel()
+        UserDefaults.standard.set(text, forKey: "stickyNoteText")
     }
 
     private func updateWindowHeightConstraints(_ window: NSWindow, desiredContentHeight: CGFloat) {

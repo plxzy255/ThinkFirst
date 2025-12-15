@@ -51,10 +51,16 @@ private struct StickyNoteDoneButtonPlayground: View {
                 }
             }
 
-            StickyNoteView(previewIsEditing: true)
-                .defaultAppStorage(PreviewStorage.defaults)
-                .doneButtonStyle(doneStyle)
-                .frame(width: 260, height: 180)
+            Group {
+                #if DEBUG
+                StickyNoteView(previewIsEditing: true)
+                #else
+                StickyNoteView()
+                #endif
+            }
+            .defaultAppStorage(PreviewStorage.defaults)
+            .doneButtonStyle(doneStyle)
+            .frame(width: 260, height: 180)
         }
         .padding()
         .frame(width: 320)
