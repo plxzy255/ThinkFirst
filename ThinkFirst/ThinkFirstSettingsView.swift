@@ -100,7 +100,7 @@ struct ThinkFirstSettingsView: View {
                         if prayerEnabled {
                             Group {
                                 switch prayerLocationManager.authorizationStatus {
-                                case .authorized, .authorizedAlways:
+                                case .authorizedAlways, .authorizedWhenInUse:
                                     if prayerLocationManager.lastKnownCoordinate != nil {
                                         Text("Using your current location to calculate prayer times.")
                                     } else {

@@ -2,7 +2,6 @@
 // Manages the floating sticky note window and contains the SwiftUI view for editing text.
 
 import AppKit
-import Combine
 import CoreLocation
 import SwiftUI
 
@@ -536,7 +535,7 @@ struct StickyNoteView: View {
 
     private var prayerLocationPlaceholderText: String {
         switch prayerLocationManager.authorizationStatus {
-        case .authorized, .authorizedAlways:
+        case .authorizedAlways, .authorizedWhenInUse:
             return "Getting location…"
         case .notDetermined:
             return "Allow location access in Settings to show prayer times."
