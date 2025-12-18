@@ -399,6 +399,7 @@ struct StickyNoteView: View {
 
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
+    @State private var isPrayerAccessoryVisible: Bool = false
 
     @Environment(\.controlActiveState) private var controlActiveState
 
@@ -451,7 +452,7 @@ struct StickyNoteView: View {
             .padding(.trailing, StickyNoteLayout.contentPadding)
             .layoutPriority(1)
 
-            if prayerEnabled {
+            if prayerEnabled, isPrayerAccessoryVisible {
                 prayerAccessoryView
                     .background {
                         GeometryReader { proxy in
@@ -469,7 +470,13 @@ struct StickyNoteView: View {
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             resizer.setPrayerEnabled(prayerEnabled)
             if prayerEnabled {
+                isPrayerAccessoryVisible = false
+                DispatchQueue.main.async {
+                    isPrayerAccessoryVisible = true
+                }
                 prayerLocationManager.requestAccessAndLocation()
+            } else {
+                isPrayerAccessoryVisible = false
             }
         }
         .onChange(of: isEditing) { _, _ in
@@ -479,6 +486,14 @@ struct StickyNoteView: View {
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
         }
         .onChange(of: prayerEnabled) { _, enabled in
+            if enabled {
+                isPrayerAccessoryVisible = false
+                DispatchQueue.main.async {
+                    isPrayerAccessoryVisible = true
+                }
+            } else {
+                isPrayerAccessoryVisible = false
+            }
             resizer.setPrayerEnabled(enabled)
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             if enabled {
