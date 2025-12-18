@@ -23,56 +23,6 @@ enum StickyNoteLayout {
 private final class StickyNoteWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
-
-    var isUserDraggingForDebug: Bool = false
-
-#if DEBUG
-    private func debugLog(_ message: String) {
-        let fm = FileManager.default
-        let baseLibrary = fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
-        let logsDir = baseLibrary.appendingPathComponent("Logs/ThinkFirst", isDirectory: true)
-
-        do {
-            try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
-            let fileURL = logsDir.appendingPathComponent("drag.log")
-            let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
-            if let data = line.data(using: .utf8) {
-                if fm.fileExists(atPath: fileURL.path) {
-                    let handle = try FileHandle(forWritingTo: fileURL)
-                    try handle.seekToEnd()
-                    try handle.write(contentsOf: data)
-                    try handle.close()
-                } else {
-                    try data.write(to: fileURL, options: .atomic)
-                }
-            }
-        } catch {
-            // Best-effort only; avoid crashing in debug logging.
-        }
-    }
-
-    func debugMark(_ message: String) {
-        debugLog("MARK \(message)")
-    }
-#endif
-
-    override func setFrame(_ frameRect: NSRect, display flag: Bool, animate animateFlag: Bool) {
-#if DEBUG
-        if isUserDraggingForDebug {
-            debugLog("setFrame(animate=\(animateFlag)) frame=\(NSStringFromRect(frameRect))")
-        }
-#endif
-        super.setFrame(frameRect, display: flag, animate: animateFlag)
-    }
-
-    override func setFrameOrigin(_ newOrigin: NSPoint) {
-#if DEBUG
-        if isUserDraggingForDebug {
-            debugLog("setFrameOrigin origin=\(NSStringFromPoint(newOrigin))")
-        }
-#endif
-        super.setFrameOrigin(newOrigin)
-    }
 }
 
 final class StickyNoteWindowResizer: ObservableObject {
@@ -150,18 +100,10 @@ final class StickyNoteWindowResizer: ObservableObject {
         isUserDraggingWindow = true
         needsApplyAfterDrag = false
         finishInFlightAnimationsForUserInteraction()
-        if let win = window as? StickyNoteWindow {
-            win.isUserDraggingForDebug = true
-            win.debugMark("beginUserDrag frame=\(NSStringFromRect(win.frame)) animating=\(isAnimatingApply)")
-        }
     }
 
     func endUserDrag() {
         isUserDraggingWindow = false
-        if let win = window as? StickyNoteWindow {
-            win.debugMark("endUserDrag frame=\(NSStringFromRect(win.frame)) animating=\(isAnimatingApply)")
-            win.isUserDraggingForDebug = false
-        }
         if needsApplyAfterDrag {
             needsApplyAfterDrag = false
             scheduleApply()

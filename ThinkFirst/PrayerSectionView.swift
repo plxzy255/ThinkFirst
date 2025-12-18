@@ -38,7 +38,6 @@ struct PrayerSectionView: View {
                 }
             }
         }
-        //.padding(.vertical, 8)
         .padding(.top, 8)
         .padding(.bottom, 12)
         .padding(.horizontal, StickyNoteLayout.contentPadding)
