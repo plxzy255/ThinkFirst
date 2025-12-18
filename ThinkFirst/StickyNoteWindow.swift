@@ -10,7 +10,7 @@ import Combine
 
 enum StickyNoteLayout {
     static let contentPadding: CGFloat = 16
-    static let contentBottomPaddingWhenPrayerEnabled: CGFloat = 0
+    static let contentBottomPaddingWhenPrayerEnabled: CGFloat = 6
     static let fontSize: CGFloat = 18
     static let minVisibleLines: CGFloat = 2
     static let controlsExtraTopPadding: CGFloat = 12
