@@ -4,14 +4,16 @@
 import AppKit
 import CoreLocation
 import SwiftUI
+import Combine
 
 // MARK: - Layout Constants
 
 enum StickyNoteLayout {
     static let contentPadding: CGFloat = 16
+    static let contentBottomPaddingWhenPrayerEnabled: CGFloat = 0
     static let fontSize: CGFloat = 18
     static let minVisibleLines: CGFloat = 2
-    static let controlsExtraTopPadding: CGFloat = 18
+    static let controlsExtraTopPadding: CGFloat = 12
     static let controlsButtonInset: CGFloat = 10
 }
 
@@ -423,7 +425,7 @@ struct StickyNoteView: View {
     var body: some View {
         let controlsAreVisible = isEditing || (isWindowActive && !isEditing)
         let textTopPadding = StickyNoteLayout.contentPadding + (controlsAreVisible ? StickyNoteLayout.controlsExtraTopPadding : 0)
-        let textBottomPadding = StickyNoteLayout.contentPadding
+        let textBottomPadding = prayerEnabled ? StickyNoteLayout.contentBottomPaddingWhenPrayerEnabled : StickyNoteLayout.contentPadding
 
         VStack(spacing: 0) {
             NativeTextView(
@@ -478,6 +480,7 @@ struct StickyNoteView: View {
         }
         .onChange(of: prayerEnabled) { _, enabled in
             resizer.setPrayerEnabled(enabled)
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             if enabled {
                 prayerLocationManager.requestAccessAndLocation()
             }
@@ -527,7 +530,7 @@ struct StickyNoteView: View {
                 Text(prayerLocationPlaceholderText)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 8)
                     .padding(.horizontal, StickyNoteLayout.contentPadding)
             }
         }
