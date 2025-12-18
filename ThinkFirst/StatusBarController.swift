@@ -6,6 +6,8 @@ import SwiftUI
 import AppKit
 
 final class SettingsPanelController: NSWindowController {
+    static let shared = SettingsPanelController()
+
     init() {
         let hostingView = NSHostingView(rootView: ThinkFirstSettingsView())
         hostingView.wantsLayer = true
@@ -44,7 +46,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var stickyNoteWindowController: StickyNoteWindowController? = nil
     private let statusMenu = NSMenu()
     private let toggleVisibilityItem = NSMenuItem()
-    private let settingsPanelController = SettingsPanelController()
 
     override init() {
         super.init()
@@ -113,8 +114,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func showSettings() {
         // Showing a window while the status bar menu is tracking can fail to reveal it reliably.
         // Defer to the next run loop so the menu has closed first.
-        DispatchQueue.main.async { [weak self] in
-            self?.settingsPanelController.show()
+        DispatchQueue.main.async {
+            SettingsPanelController.shared.show()
         }
     }
 }

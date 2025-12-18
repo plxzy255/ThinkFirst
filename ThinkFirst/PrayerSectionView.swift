@@ -6,7 +6,7 @@ struct PrayerSectionView: View {
     let coordinate: CLLocationCoordinate2D
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Prayer")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -38,7 +38,8 @@ struct PrayerSectionView: View {
                 }
             }
         }
-        .padding(.vertical, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .padding(.horizontal, StickyNoteLayout.contentPadding)
     }
 }

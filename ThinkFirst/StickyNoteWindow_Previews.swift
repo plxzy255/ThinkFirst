@@ -12,35 +12,6 @@ private enum PreviewStorage {
     }()
 }
 
-private struct DoneButtonStyleGallery: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(DoneButtonStyle.allCases) { style in
-                doneButton(for: style)
-            }
-        }
-        .controlSize(.small)
-        .padding()
-        .frame(width: 260)
-    }
-
-    @ViewBuilder
-    private func doneButton(for style: DoneButtonStyle) -> some View {
-        switch style {
-        case .automatic:
-            Button(style.rawValue) {}.buttonStyle(.automatic)
-        case .bordered:
-            Button(style.rawValue) {}.buttonStyle(.bordered)
-        case .borderedProminent:
-            Button(style.rawValue) {}.buttonStyle(.borderedProminent)
-        case .glass:
-            Button(style.rawValue) {}.buttonStyle(.glass)
-        case .glassProminent:
-            Button(style.rawValue) {}.buttonStyle(.glassProminent)
-        }
-    }
-}
-
 private struct EmojiSpec: Identifiable {
     let id = UUID()
     let emoji: String
@@ -123,29 +94,14 @@ private struct PlaygroundBackdrop: View {
 }
 
 private struct StickyNoteDoneButtonPlayground: View {
-    @State private var doneStyle: DoneButtonStyle = .glassProminent
     private static let noteSize = CGSize(width: 260, height: 100)
     private static let backdropSize = CGSize(width: 700, height: 450)
     private let backdrop = PlaygroundBackdropSpec.random()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Done button style", selection: $doneStyle) {
-                ForEach(DoneButtonStyle.allCases) { style in
-                    Text(style.rawValue).tag(style)
-                }
-            }
-            .zIndex(1)
-
-            HStack {
-                Spacer(minLength: 0)
-                Group {
-                    #if DEBUG
-                    StickyNoteView(previewIsEditing: true)
-                    #else
-                    StickyNoteView()
-                    #endif
-                }
+        HStack {
+            Spacer(minLength: 0)
+            StickyNoteView(previewIsEditing: true)
                 .frame(
                     width: StickyNoteDoneButtonPlayground.noteSize.width,
                     height: StickyNoteDoneButtonPlayground.noteSize.height
@@ -158,10 +114,7 @@ private struct StickyNoteDoneButtonPlayground: View {
                         )
                         .allowsHitTesting(false)
                 }
-                .doneButtonStyle(doneStyle)
-                Spacer(minLength: 0)
-            }
-            .zIndex(0)
+            Spacer(minLength: 0)
         }
         .padding()
         .frame(width: 420, height: 300, alignment: .topLeading)
@@ -173,10 +126,6 @@ private struct StickyNotePlaygroundPreviewRoot: View {
         StickyNoteDoneButtonPlayground()
             .defaultAppStorage(PreviewStorage.defaults)
     }
-}
-
-#Preview("Done Button Styles") {
-    DoneButtonStyleGallery()
 }
 
 #Preview("Sticky Note Playground") {

@@ -29,7 +29,7 @@ final class PrayerLocationManager: NSObject, ObservableObject, CLLocationManager
         case .notDetermined:
             // On macOS, requestAlwaysAuthorization is the supported prompt flow.
             manager.requestAlwaysAuthorization()
-        case .authorized, .authorizedAlways:
+        case .authorizedAlways, .authorizedWhenInUse:
             manager.requestLocation()
         case .restricted, .denied:
             break
@@ -42,7 +42,7 @@ final class PrayerLocationManager: NSObject, ObservableObject, CLLocationManager
         authorizationStatus = manager.authorizationStatus
 
         switch authorizationStatus {
-        case .authorized, .authorizedAlways:
+        case .authorizedAlways, .authorizedWhenInUse:
             manager.requestLocation()
         case .notDetermined, .restricted, .denied:
             break
@@ -56,7 +56,7 @@ final class PrayerLocationManager: NSObject, ObservableObject, CLLocationManager
         lastErrorDescription = nil
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
         lastErrorDescription = error.localizedDescription
     }
 }

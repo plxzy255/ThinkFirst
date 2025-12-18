@@ -2,55 +2,20 @@
 // Manages the floating sticky note window and contains the SwiftUI view for editing text.
 
 import AppKit
-import Combine
 import CoreLocation
 import SwiftUI
-
-// MARK: - Done Button Style
-
-enum DoneButtonStyle: String, CaseIterable, Identifiable {
-    case automatic = "Automatic"
-    case bordered = "Bordered"
-    case borderedProminent = "Bordered Prominent"
-    case glass = "Glass"
-    case glassProminent = "Glass Prominent"
-
-    var id: String { rawValue }
-}
-
-private struct DoneButtonStyleKey: EnvironmentKey {
-    static let defaultValue: DoneButtonStyle = .glassProminent
-}
-
-extension EnvironmentValues {
-    var doneButtonStyle: DoneButtonStyle {
-        get { self[DoneButtonStyleKey.self] }
-        set { self[DoneButtonStyleKey.self] = newValue }
-    }
-}
-
-extension View {
-    func doneButtonStyle(_ style: DoneButtonStyle) -> some View {
-        environment(\.doneButtonStyle, style)
-    }
-}
-
-private extension VerticalAlignment {
-    private enum FirstLineCenter: AlignmentID {
-        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
-            dimensions[VerticalAlignment.center]
-        }
-    }
-
-    static let firstLineCenter = VerticalAlignment(FirstLineCenter.self)
-}
+import Combine
+import QuartzCore
 
 // MARK: - Layout Constants
 
 enum StickyNoteLayout {
     static let contentPadding: CGFloat = 16
+    static let contentBottomPaddingWhenPrayerEnabled: CGFloat = 6
     static let fontSize: CGFloat = 18
     static let minVisibleLines: CGFloat = 2
+    static let controlsExtraTopPadding: CGFloat = 12
+    static let controlsButtonInset: CGFloat = 10
 }
 
 // MARK: - Window + Resizing
@@ -67,6 +32,18 @@ final class StickyNoteWindowResizer: ObservableObject {
     private var measuredTextHeight: CGFloat = 0
     private var measuredPrayerHeight: CGFloat = 0
     private var minTextHeight: CGFloat = 0
+    private var textTopPadding: CGFloat = 0
+    private var textBottomPadding: CGFloat = 0
+    private var animateNextApply: Bool = false
+    private var nextAnimationDuration: TimeInterval = 0.22
+    private var isAnimatingApply: Bool = false
+    private var animationTimer: Timer?
+    private var animationStartTime: CFTimeInterval = 0
+    private var animationDuration: TimeInterval = 0
+    private var animationStartFrame: NSRect = .zero
+    private var animationTargetFrame: NSRect = .zero
+    private var isUserDraggingWindow: Bool = false
+    private var needsApplyAfterDrag: Bool = false
 
     private var lastAppliedContentHeight: CGFloat = 0
     private var pendingApply: Bool = false
@@ -89,6 +66,13 @@ final class StickyNoteWindowResizer: ObservableObject {
         scheduleApply()
     }
 
+    func setTextPadding(top: CGFloat, bottom: CGFloat) {
+        if textTopPadding == top, textBottomPadding == bottom { return }
+        textTopPadding = top
+        textBottomPadding = bottom
+        scheduleApply()
+    }
+
     func setMeasuredTextHeight(_ height: CGFloat) {
         measuredTextHeight = height
         scheduleApply()
@@ -97,6 +81,33 @@ final class StickyNoteWindowResizer: ObservableObject {
     func setMeasuredPrayerHeight(_ height: CGFloat) {
         measuredPrayerHeight = height
         scheduleApply()
+    }
+
+    func animateNextResize(duration: TimeInterval = 0.22) {
+        animateNextApply = true
+        nextAnimationDuration = duration
+        scheduleApply()
+    }
+
+    func finishInFlightAnimationsForUserInteraction() {
+        guard isAnimatingApply else { return }
+        animationTimer?.invalidate()
+        animationTimer = nil
+        isAnimatingApply = false
+    }
+
+    func beginUserDrag() {
+        isUserDraggingWindow = true
+        needsApplyAfterDrag = false
+        finishInFlightAnimationsForUserInteraction()
+    }
+
+    func endUserDrag() {
+        isUserDraggingWindow = false
+        if needsApplyAfterDrag {
+            needsApplyAfterDrag = false
+            scheduleApply()
+        }
     }
 
     private func scheduleApply() {
@@ -114,10 +125,16 @@ final class StickyNoteWindowResizer: ObservableObject {
 
         let textHeight = max(measuredTextHeight, minTextHeight)
         let prayerHeight = isPrayerEnabled ? measuredPrayerHeight : 0
-        let desiredContentHeight = ceil(textHeight + prayerHeight)
+        let desiredContentHeight = ceil(textTopPadding + textHeight + textBottomPadding + prayerHeight)
 
         guard desiredContentHeight.isFinite, desiredContentHeight > 0 else { return }
         guard abs(desiredContentHeight - lastAppliedContentHeight) > 0.5 else { return }
+
+        if isUserDraggingWindow {
+            needsApplyAfterDrag = true
+            return
+        }
+
         lastAppliedContentHeight = desiredContentHeight
 
         var newMin = window.contentMinSize
@@ -136,7 +153,71 @@ final class StickyNoteWindowResizer: ObservableObject {
         frame.size.height = targetFrameHeight
         frame.origin.y = top - targetFrameHeight
 
-        window.setFrame(frame, display: true, animate: false)
+        let shouldAnimate = animateNextApply
+        let duration = nextAnimationDuration
+        animateNextApply = false
+
+        if shouldAnimate {
+            startManualResizeAnimation(to: frame, duration: duration)
+        } else {
+            animationTimer?.invalidate()
+            animationTimer = nil
+            isAnimatingApply = false
+            window.setFrame(frame, display: true, animate: false)
+        }
+    }
+
+    private func startManualResizeAnimation(to targetFrame: NSRect, duration: TimeInterval) {
+        guard let window else { return }
+
+        animationTimer?.invalidate()
+        animationTimer = nil
+
+        isAnimatingApply = true
+        animationStartTime = CACurrentMediaTime()
+        animationDuration = max(0.01, duration)
+        animationStartFrame = window.frame
+        animationTargetFrame = targetFrame
+
+        let tickInterval: TimeInterval = 1.0 / 60.0
+        let timer = Timer(
+            timeInterval: tickInterval,
+            target: self,
+            selector: #selector(handleManualResizeAnimationTick(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+        animationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    @objc private func handleManualResizeAnimationTick(_ timer: Timer) {
+        guard let window else {
+            timer.invalidate()
+            animationTimer = nil
+            isAnimatingApply = false
+            return
+        }
+
+        let elapsed = CACurrentMediaTime() - animationStartTime
+        let rawT = min(max(elapsed / animationDuration, 0), 1)
+        let t = rawT * rawT * (3 - 2 * rawT)
+
+        let start = animationStartFrame
+        let end = animationTargetFrame
+
+        let newX = start.origin.x + (end.origin.x - start.origin.x) * t
+        let newY = start.origin.y + (end.origin.y - start.origin.y) * t
+        let newW = start.size.width + (end.size.width - start.size.width) * t
+        let newH = start.size.height + (end.size.height - start.size.height) * t
+
+        window.setFrame(NSRect(x: newX, y: newY, width: newW, height: newH), display: true, animate: false)
+
+        if rawT >= 1 {
+            timer.invalidate()
+            animationTimer = nil
+            isAnimatingApply = false
+        }
     }
 }
 
@@ -197,12 +278,12 @@ private struct NativeTextView: NSViewRepresentable {
         textView.textColor = textColor
         textView.string = text
         textView.textContainerInset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
-        textView.textContainer?.lineFragmentPadding = 0
+        unsafe textView.textContainer?.lineFragmentPadding = 0
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.heightTracksTextView = false
+        unsafe textView.textContainer?.widthTracksTextView = true
+        unsafe textView.textContainer?.heightTracksTextView = false
 
         textView.onFocusChange = { focused in
             DispatchQueue.main.async {
@@ -221,7 +302,7 @@ private struct NativeTextView: NSViewRepresentable {
             guard let scrollView, let textView else { return }
             let measured = Self.measuredContentHeight(for: textView)
             DispatchQueue.main.async {
-                guard scrollView.window != nil else { return }
+                guard unsafe scrollView.window != nil else { return }
                 onMeasuredContentHeight?(measured)
             }
         }
@@ -241,9 +322,9 @@ private struct NativeTextView: NSViewRepresentable {
 
         let inset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.heightTracksTextView = false
+        unsafe textView.textContainer?.lineFragmentPadding = 0
+        unsafe textView.textContainer?.widthTracksTextView = true
+        unsafe textView.textContainer?.heightTracksTextView = false
 
         let requiredHeight = Self.measuredContentHeight(for: textView)
         let contentSize = nsView.contentSize
@@ -258,12 +339,14 @@ private struct NativeTextView: NSViewRepresentable {
         onMeasuredContentHeight?(requiredHeight)
 
         if isFocused {
-            if nsView.window?.firstResponder !== textView {
-                nsView.window?.makeFirstResponder(textView)
+            let window = unsafe nsView.window
+            if window?.firstResponder !== textView {
+                window?.makeFirstResponder(textView)
             }
         } else {
-            if nsView.window?.firstResponder === textView {
-                nsView.window?.makeFirstResponder(nil)
+            let window = unsafe nsView.window
+            if window?.firstResponder === textView {
+                window?.makeFirstResponder(nil)
             }
         }
     }
@@ -273,10 +356,9 @@ private struct NativeTextView: NSViewRepresentable {
     }
 
     private static func measuredContentHeight(for textView: NSTextView) -> CGFloat {
-        guard
-            let textContainer = textView.textContainer,
-            let layoutManager = textView.layoutManager
-        else {
+        let textContainer = unsafe textView.textContainer
+        let layoutManager = unsafe textView.layoutManager
+        guard let textContainer, let layoutManager else {
             return max(0, textView.bounds.height)
         }
 
@@ -284,7 +366,7 @@ private struct NativeTextView: NSViewRepresentable {
         let usedHeight = layoutManager.usedRect(for: textContainer).height
         let font = textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let lineHeight = layoutManager.defaultLineHeight(for: font)
-        return ceil(max(usedHeight, lineHeight) + textView.textContainerInset.height * 2)
+        return ceil(max(usedHeight, lineHeight))
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -306,8 +388,7 @@ private struct NativeTextView: NSViewRepresentable {
     final class CallbackTextView: NSTextView {
         var onFocusChange: (Bool) -> Void = { _ in }
         var onEndEditing: () -> Void = {}
-        private var windowResignObserver: Any?
-        private var appResignObserver: Any?
+        private weak var observedWindow: NSWindow?
 
         override func becomeFirstResponder() -> Bool {
             let became = super.becomeFirstResponder()
@@ -333,32 +414,35 @@ private struct NativeTextView: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
 
-            if let windowResignObserver {
-                NotificationCenter.default.removeObserver(windowResignObserver)
-                self.windowResignObserver = nil
+            if let observedWindow {
+                NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: observedWindow)
             }
-            if let appResignObserver {
-                NotificationCenter.default.removeObserver(appResignObserver)
-                self.appResignObserver = nil
-            }
+            NotificationCenter.default.removeObserver(self, name: NSApplication.didResignActiveNotification, object: NSApp)
+            observedWindow = nil
 
-            guard let window else { return }
+            guard let window = unsafe self.window else { return }
+            observedWindow = window
 
-            windowResignObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onEndEditing()
-            }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleWindowDidResignKey(_:)),
+                name: NSWindow.didResignKeyNotification,
+                object: window
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppDidResignActive(_:)),
+                name: NSApplication.didResignActiveNotification,
+                object: NSApp
+            )
+        }
 
-            appResignObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: NSApp,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onEndEditing()
-            }
+        @objc private func handleWindowDidResignKey(_ notification: Notification) {
+            onEndEditing()
+        }
+
+        @objc private func handleAppDidResignActive(_ notification: Notification) {
+            onEndEditing()
         }
     }
 }
@@ -367,23 +451,35 @@ private struct NativeTextView: NSViewRepresentable {
 
 private struct WindowDragOverlay: NSViewRepresentable {
     var enabled: Bool
+    var onDragStart: () -> Void = {}
+    var onDragEnd: () -> Void = {}
     var onDoubleClick: () -> Void
 
     func makeNSView(context: Context) -> DragOverlayView {
         let view = DragOverlayView()
         view.enabled = enabled
+        view.onDragStart = onDragStart
+        view.onDragEnd = onDragEnd
         view.onDoubleClick = onDoubleClick
         return view
     }
 
     func updateNSView(_ nsView: DragOverlayView, context: Context) {
         nsView.enabled = enabled
+        nsView.onDragStart = onDragStart
+        nsView.onDragEnd = onDragEnd
         nsView.onDoubleClick = onDoubleClick
     }
 
     final class DragOverlayView: NSView {
         var enabled: Bool = false
+        var onDragStart: () -> Void = {}
+        var onDragEnd: () -> Void = {}
         var onDoubleClick: () -> Void = {}
+        private var dragStarted: Bool = false
+        private var dragStartMouseScreenPoint: NSPoint = .zero
+        private var dragStartWindowOrigin: NSPoint = .zero
+        private var mouseDownWindowFrame: NSRect = .zero
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
             enabled
@@ -393,18 +489,76 @@ private struct WindowDragOverlay: NSViewRepresentable {
             enabled ? self : nil
         }
 
-        override func mouseDown(with event: NSEvent) {
-            guard enabled else {
-                super.mouseDown(with: event)
-                return
-            }
+	        override func mouseDown(with event: NSEvent) {
+	            guard enabled else {
+	                super.mouseDown(with: event)
+	                return
+	            }
 
             if event.clickCount >= 2 {
                 onDoubleClick()
                 return
+	            }
+	
+	            dragStarted = false
+	            let window = unsafe self.window
+	            if let window {
+	                mouseDownWindowFrame = window.frame
+	                dragStartWindowOrigin = mouseDownWindowFrame.origin
+	                dragStartMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
+	
+                // If the window is currently inactive, activation/resizing can kick off immediately after mouseDown.
+                // Start a "drag session" now so the resizer can defer any frame changes until mouseUp.
+                if !window.isKeyWindow {
+                    dragStarted = true
+                    onDragStart()
+                    mouseDownWindowFrame = window.frame
+                    dragStartWindowOrigin = mouseDownWindowFrame.origin
+                }
+            }
+	        }
+	
+	        override func mouseDragged(with event: NSEvent) {
+	            guard enabled, let window = unsafe self.window else {
+	                super.mouseDragged(with: event)
+	                return
+	            }
+
+            let currentMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
+
+            if !dragStarted {
+                dragStarted = true
+                onDragStart()
+                // If the window resized/repositioned between mouseDown and the first mouseDragged (activation),
+                // reset baseline to avoid a jump.
+                if window.frame != mouseDownWindowFrame {
+                    mouseDownWindowFrame = window.frame
+                    dragStartWindowOrigin = mouseDownWindowFrame.origin
+                    dragStartMouseScreenPoint = currentMouseScreenPoint
+                }
             }
 
-            window?.performDrag(with: event)
+            let dx = currentMouseScreenPoint.x - dragStartMouseScreenPoint.x
+            let dy = currentMouseScreenPoint.y - dragStartMouseScreenPoint.y
+            let newOrigin = NSPoint(x: dragStartWindowOrigin.x + dx, y: dragStartWindowOrigin.y + dy)
+            let scale = max(1, window.backingScaleFactor)
+            let snapped = NSPoint(
+                x: (newOrigin.x * scale).rounded() / scale,
+                y: (newOrigin.y * scale).rounded() / scale
+            )
+            window.setFrameOrigin(snapped)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            defer { dragStarted = false }
+            guard enabled else {
+                super.mouseUp(with: event)
+                return
+            }
+
+            if dragStarted {
+                onDragEnd()
+            }
         }
     }
 }
@@ -426,8 +580,8 @@ struct StickyNoteView: View {
 
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
+    @State private var isPrayerAccessoryVisible: Bool = false
 
-    @Environment(\.doneButtonStyle) private var doneButtonStyle
     @Environment(\.controlActiveState) private var controlActiveState
 
     @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
@@ -439,7 +593,7 @@ struct StickyNoteView: View {
 
     private var minTextContentHeight: CGFloat {
         let lineHeight = ceil(editorLineHeight)
-        return ceil(StickyNoteLayout.contentPadding * 2 + lineHeight * StickyNoteLayout.minVisibleLines)
+        return ceil(lineHeight * StickyNoteLayout.minVisibleLines)
     }
 
     private var isWindowActive: Bool { controlActiveState == .key }
@@ -451,6 +605,10 @@ struct StickyNoteView: View {
     }
 
     var body: some View {
+        let controlsAreVisible = isEditing || (isWindowActive && !isEditing)
+        let textTopPadding = StickyNoteLayout.contentPadding + (controlsAreVisible ? StickyNoteLayout.controlsExtraTopPadding : 0)
+        let textBottomPadding = prayerEnabled ? StickyNoteLayout.contentBottomPaddingWhenPrayerEnabled : StickyNoteLayout.contentPadding
+
         VStack(spacing: 0) {
             NativeTextView(
                 text: $text,
@@ -458,7 +616,7 @@ struct StickyNoteView: View {
                 isEditable: isEditing,
                 font: editorFont,
                 textColor: .white,
-                textContainerInset: CGSize(width: StickyNoteLayout.contentPadding, height: StickyNoteLayout.contentPadding),
+                textContainerInset: .zero,
                 onFocusChange: { focused in
                     if !focused { endEditing() }
                 },
@@ -469,9 +627,13 @@ struct StickyNoteView: View {
                     resizer.setMeasuredTextHeight(measuredContentHeight)
                 }
             )
+            .padding(.top, textTopPadding)
+            .padding(.bottom, textBottomPadding)
+            .padding(.leading, StickyNoteLayout.contentPadding)
+            .padding(.trailing, StickyNoteLayout.contentPadding)
             .layoutPriority(1)
 
-            if prayerEnabled {
+            if prayerEnabled, isPrayerAccessoryVisible {
                 prayerAccessoryView
                     .background {
                         GeometryReader { proxy in
@@ -481,18 +643,45 @@ struct StickyNoteView: View {
                     }
             }
         }
+        .animation(.easeInOut(duration: 0.22), value: controlsAreVisible)
         .onPreferenceChange(PrayerAccessoryHeightPreferenceKey.self) { height in
             resizer.setMeasuredPrayerHeight(height)
         }
         .onAppear {
             resizer.setMinTextHeight(minTextContentHeight)
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             resizer.setPrayerEnabled(prayerEnabled)
             if prayerEnabled {
+                isPrayerAccessoryVisible = false
+                DispatchQueue.main.async {
+                    isPrayerAccessoryVisible = true
+                }
                 prayerLocationManager.requestAccessAndLocation()
+            } else {
+                isPrayerAccessoryVisible = false
             }
         }
+        .onChange(of: isEditing) { _, _ in
+            resizer.animateNextResize()
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
+        }
+        .onChange(of: controlActiveState) { oldState, newState in
+            if oldState != newState, !isEditing {
+                resizer.animateNextResize()
+            }
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
+        }
         .onChange(of: prayerEnabled) { _, enabled in
+            if enabled {
+                isPrayerAccessoryVisible = false
+                DispatchQueue.main.async {
+                    isPrayerAccessoryVisible = true
+                }
+            } else {
+                isPrayerAccessoryVisible = false
+            }
             resizer.setPrayerEnabled(enabled)
+            resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             if enabled {
                 prayerLocationManager.requestAccessAndLocation()
             }
@@ -512,30 +701,26 @@ struct StickyNoteView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
-            WindowDragOverlay(enabled: !isEditing) {
+            WindowDragOverlay(
+                enabled: !isEditing,
+                onDragStart: { resizer.beginUserDrag() },
+                onDragEnd: { resizer.endUserDrag() }
+            ) {
                 isEditing = true
                 DispatchQueue.main.async {
                     isTextEditorFocused = true
                 }
             }
         }
-        .overlay(alignment: .topLeading) {
+        .overlay(alignment: .topTrailing) {
             if isEditing {
-                HStack(alignment: .firstLineCenter) {
-                    Color.clear
-                        .frame(width: 1, height: editorLineHeight)
-                        .accessibilityHidden(true)
-                        .alignmentGuide(.firstLineCenter) { dimensions in
-                            dimensions[VerticalAlignment.center]
-                        }
-
-                    Spacer()
-
-                    doneButton
-                }
-                .padding(.top, StickyNoteLayout.contentPadding)
-                .padding(.leading, StickyNoteLayout.contentPadding)
-                .padding(.trailing, StickyNoteLayout.contentPadding)
+                doneButton
+                    .padding(.top, StickyNoteLayout.controlsButtonInset)
+                    .padding(.trailing, StickyNoteLayout.controlsButtonInset)
+            } else if isWindowActive {
+                settingsButton
+                    .padding(.top, StickyNoteLayout.controlsButtonInset)
+                    .padding(.trailing, StickyNoteLayout.controlsButtonInset)
             }
         }
     }
@@ -550,7 +735,7 @@ struct StickyNoteView: View {
                 Text(prayerLocationPlaceholderText)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 8)
                     .padding(.horizontal, StickyNoteLayout.contentPadding)
             }
         }
@@ -558,7 +743,7 @@ struct StickyNoteView: View {
 
     private var prayerLocationPlaceholderText: String {
         switch prayerLocationManager.authorizationStatus {
-        case .authorized, .authorizedAlways:
+        case .authorizedAlways, .authorizedWhenInUse:
             return "Getting location…"
         case .notDetermined:
             return "Allow location access in Settings to show prayer times."
@@ -569,33 +754,29 @@ struct StickyNoteView: View {
         }
     }
 
-    @ViewBuilder
     private var doneButton: some View {
-        switch doneButtonStyle {
-        case .automatic:
-            baseDoneButton.buttonStyle(.automatic)
-        case .bordered:
-            baseDoneButton.buttonStyle(.bordered)
-        case .borderedProminent:
-            baseDoneButton.buttonStyle(.borderedProminent)
-        case .glass:
-            baseDoneButton.buttonStyle(.glass)
-        case .glassProminent:
-            baseDoneButton.buttonStyle(.glassProminent)
-        }
-    }
-
-    private var baseDoneButton: some View {
         Button {
             endEditing()
         } label: {
-            Text("Done")
+            Label("Done", systemImage: "checkmark.circle.fill")
+                .labelStyle(.iconOnly)
         }
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
         .tint(.accentColor)
-        .controlSize(.small)
-        .alignmentGuide(.firstLineCenter) { dimensions in
-            dimensions[VerticalAlignment.center]
+        .accessibilityLabel("Done")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            SettingsPanelController.shared.show()
+        } label: {
+            Label("Settings", systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
         }
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
+        .accessibilityLabel("Settings")
     }
 
     private func endEditing() {
