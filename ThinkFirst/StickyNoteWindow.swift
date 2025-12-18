@@ -33,6 +33,8 @@ final class StickyNoteWindowResizer: ObservableObject {
     private var minTextHeight: CGFloat = 0
     private var textTopPadding: CGFloat = 0
     private var textBottomPadding: CGFloat = 0
+    private var animateNextApply: Bool = false
+    private var nextAnimationDuration: TimeInterval = 0.22
 
     private var lastAppliedContentHeight: CGFloat = 0
     private var pendingApply: Bool = false
@@ -69,6 +71,12 @@ final class StickyNoteWindowResizer: ObservableObject {
 
     func setMeasuredPrayerHeight(_ height: CGFloat) {
         measuredPrayerHeight = height
+        scheduleApply()
+    }
+
+    func animateNextResize(duration: TimeInterval = 0.22) {
+        animateNextApply = true
+        nextAnimationDuration = duration
         scheduleApply()
     }
 
@@ -109,7 +117,19 @@ final class StickyNoteWindowResizer: ObservableObject {
         frame.size.height = targetFrameHeight
         frame.origin.y = top - targetFrameHeight
 
-        window.setFrame(frame, display: true, animate: false)
+        let shouldAnimate = animateNextApply
+        let duration = nextAnimationDuration
+        animateNextApply = false
+
+        if shouldAnimate {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.allowsImplicitAnimation = true
+                window.animator().setFrame(frame, display: true)
+            }
+        } else {
+            window.setFrame(frame, display: true, animate: false)
+        }
     }
 }
 
@@ -462,6 +482,7 @@ struct StickyNoteView: View {
                     }
             }
         }
+        .animation(.easeInOut(duration: 0.22), value: controlsAreVisible)
         .onPreferenceChange(PrayerAccessoryHeightPreferenceKey.self) { height in
             resizer.setMeasuredPrayerHeight(height)
         }
@@ -480,9 +501,13 @@ struct StickyNoteView: View {
             }
         }
         .onChange(of: isEditing) { _, _ in
+            resizer.animateNextResize()
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
         }
-        .onChange(of: controlActiveState) { _, _ in
+        .onChange(of: controlActiveState) { oldState, newState in
+            if oldState != newState, !isEditing {
+                resizer.animateNextResize()
+            }
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
         }
         .onChange(of: prayerEnabled) { _, enabled in
