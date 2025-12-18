@@ -65,6 +65,7 @@ private struct SettingsSectionCard<Content: View>: View {
 
 struct ThinkFirstSettingsView: View {
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.3
+    @AppStorage(StickyNoteFontSizeOption.storageKey) private var stickyNoteFontSizeOptionRaw: String = StickyNoteFontSizeOption.normal.rawValue
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
     @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
 
@@ -77,6 +78,17 @@ struct ThinkFirstSettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 SettingsSectionCard(title: "Sticky Note", systemImage: "note.text") {
                     VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("Font size") {
+                            Picker("Font size", selection: $stickyNoteFontSizeOptionRaw) {
+                                ForEach(StickyNoteFontSizeOption.allCases) { option in
+                                    Text(option.title).tag(option.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 220, alignment: .trailing)
+                        }
+
                         LabeledContent("Background opacity") {
                             Text("\(Int((inactiveBackgroundOpacity * 100).rounded()))%")
                                 .monospacedDigit()

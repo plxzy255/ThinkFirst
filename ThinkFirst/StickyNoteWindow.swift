@@ -18,6 +18,39 @@ enum StickyNoteLayout {
     static let controlsButtonInset: CGFloat = 10
 }
 
+enum StickyNoteFontSizeOption: String, CaseIterable, Identifiable {
+    static let storageKey: String = "stickyNoteFontSizeOption"
+
+    case small
+    case normal
+    case large
+    case extraLarge
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .small: "Small"
+        case .normal: "Normal"
+        case .large: "Large"
+        case .extraLarge: "Extra Large"
+        }
+    }
+
+    var scale: CGFloat {
+        switch self {
+        case .small: 0.85
+        case .normal: 1.00
+        case .large: 1.20
+        case .extraLarge: 1.35
+        }
+    }
+
+    static func from(rawValue: String) -> StickyNoteFontSizeOption {
+        StickyNoteFontSizeOption(rawValue: rawValue) ?? .normal
+    }
+}
+
 // MARK: - Window + Resizing
 
 private final class StickyNoteWindow: NSWindow {
@@ -366,7 +399,11 @@ private struct NativeTextView: NSViewRepresentable {
         let usedHeight = layoutManager.usedRect(for: textContainer).height
         let font = textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let lineHeight = layoutManager.defaultLineHeight(for: font)
-        return ceil(max(usedHeight, lineHeight))
+        let insetHeight = textView.textContainerInset.height * 2
+        // AppKit occasionally under-reports the used height by a fraction of a point for larger fonts,
+        // which can clip descenders by ~1px. Add a tiny, font-relative padding to avoid clipping.
+        let measurementPadding = max(1, ceil(font.pointSize * 0.17))
+        return ceil(max(usedHeight, lineHeight) + insetHeight + measurementPadding)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -576,6 +613,7 @@ struct StickyNoteView: View {
 
     @AppStorage("stickyNoteText") private var text: String = ""
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
+    @AppStorage(StickyNoteFontSizeOption.storageKey) private var stickyNoteFontSizeOptionRaw: String = StickyNoteFontSizeOption.normal.rawValue
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
 
     @State private var isEditing: Bool = false
@@ -585,7 +623,14 @@ struct StickyNoteView: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
-    private let editorFont: NSFont = .systemFont(ofSize: StickyNoteLayout.fontSize)
+
+    private var fontScale: CGFloat {
+        StickyNoteFontSizeOption.from(rawValue: stickyNoteFontSizeOptionRaw).scale
+    }
+
+    private var editorFont: NSFont {
+        .systemFont(ofSize: StickyNoteLayout.fontSize * fontScale)
+    }
 
     private var editorLineHeight: CGFloat {
         editorFont.ascender + abs(editorFont.descender) + editorFont.leading
@@ -686,6 +731,10 @@ struct StickyNoteView: View {
                 prayerLocationManager.requestAccessAndLocation()
             }
         }
+        .onChange(of: stickyNoteFontSizeOptionRaw) { _, _ in
+            resizer.setMinTextHeight(minTextContentHeight)
+            resizer.animateNextResize()
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             if isWindowActive {
@@ -730,10 +779,10 @@ struct StickyNoteView: View {
         VStack(spacing: 0) {
             Divider().opacity(0.25)
             if let coordinate = prayerLocationManager.lastKnownCoordinate {
-                PrayerSectionView(coordinate: coordinate)
+                PrayerSectionView(coordinate: coordinate, fontScale: fontScale)
             } else {
                 Text(prayerLocationPlaceholderText)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13 * fontScale))
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
                     .padding(.horizontal, StickyNoteLayout.contentPadding)
@@ -803,7 +852,9 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         let window = StickyNoteWindow(contentViewController: hosting)
         window.title = "Sticky Note"
 
-        let font = NSFont.systemFont(ofSize: StickyNoteLayout.fontSize)
+        let storedFontOptionRaw = UserDefaults.standard.string(forKey: StickyNoteFontSizeOption.storageKey) ?? StickyNoteFontSizeOption.normal.rawValue
+        let storedFontScale = StickyNoteFontSizeOption.from(rawValue: storedFontOptionRaw).scale
+        let font = NSFont.systemFont(ofSize: StickyNoteLayout.fontSize * storedFontScale)
         let lineHeight = ceil(font.ascender + abs(font.descender) + font.leading)
         let minHeight = ceil(StickyNoteLayout.contentPadding * 2 + lineHeight * StickyNoteLayout.minVisibleLines)
 
