@@ -5,6 +5,7 @@ import AppKit
 import CoreLocation
 import SwiftUI
 import Combine
+import QuartzCore
 
 // MARK: - Layout Constants
 
@@ -22,6 +23,56 @@ enum StickyNoteLayout {
 private final class StickyNoteWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    var isUserDraggingForDebug: Bool = false
+
+#if DEBUG
+    private func debugLog(_ message: String) {
+        let fm = FileManager.default
+        let baseLibrary = fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
+        let logsDir = baseLibrary.appendingPathComponent("Logs/ThinkFirst", isDirectory: true)
+
+        do {
+            try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+            let fileURL = logsDir.appendingPathComponent("drag.log")
+            let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
+            if let data = line.data(using: .utf8) {
+                if fm.fileExists(atPath: fileURL.path) {
+                    let handle = try FileHandle(forWritingTo: fileURL)
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: data)
+                    try handle.close()
+                } else {
+                    try data.write(to: fileURL, options: .atomic)
+                }
+            }
+        } catch {
+            // Best-effort only; avoid crashing in debug logging.
+        }
+    }
+
+    func debugMark(_ message: String) {
+        debugLog("MARK \(message)")
+    }
+#endif
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool, animate animateFlag: Bool) {
+#if DEBUG
+        if isUserDraggingForDebug {
+            debugLog("setFrame(animate=\(animateFlag)) frame=\(NSStringFromRect(frameRect))")
+        }
+#endif
+        super.setFrame(frameRect, display: flag, animate: animateFlag)
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+#if DEBUG
+        if isUserDraggingForDebug {
+            debugLog("setFrameOrigin origin=\(NSStringFromPoint(newOrigin))")
+        }
+#endif
+        super.setFrameOrigin(newOrigin)
+    }
 }
 
 final class StickyNoteWindowResizer: ObservableObject {
@@ -35,6 +86,14 @@ final class StickyNoteWindowResizer: ObservableObject {
     private var textBottomPadding: CGFloat = 0
     private var animateNextApply: Bool = false
     private var nextAnimationDuration: TimeInterval = 0.22
+    private var isAnimatingApply: Bool = false
+    private var animationTimer: Timer?
+    private var animationStartTime: CFTimeInterval = 0
+    private var animationDuration: TimeInterval = 0
+    private var animationStartFrame: NSRect = .zero
+    private var animationTargetFrame: NSRect = .zero
+    private var isUserDraggingWindow: Bool = false
+    private var needsApplyAfterDrag: Bool = false
 
     private var lastAppliedContentHeight: CGFloat = 0
     private var pendingApply: Bool = false
@@ -80,6 +139,35 @@ final class StickyNoteWindowResizer: ObservableObject {
         scheduleApply()
     }
 
+    func finishInFlightAnimationsForUserInteraction() {
+        guard isAnimatingApply else { return }
+        animationTimer?.invalidate()
+        animationTimer = nil
+        isAnimatingApply = false
+    }
+
+    func beginUserDrag() {
+        isUserDraggingWindow = true
+        needsApplyAfterDrag = false
+        finishInFlightAnimationsForUserInteraction()
+        if let win = window as? StickyNoteWindow {
+            win.isUserDraggingForDebug = true
+            win.debugMark("beginUserDrag frame=\(NSStringFromRect(win.frame)) animating=\(isAnimatingApply)")
+        }
+    }
+
+    func endUserDrag() {
+        isUserDraggingWindow = false
+        if let win = window as? StickyNoteWindow {
+            win.debugMark("endUserDrag frame=\(NSStringFromRect(win.frame)) animating=\(isAnimatingApply)")
+            win.isUserDraggingForDebug = false
+        }
+        if needsApplyAfterDrag {
+            needsApplyAfterDrag = false
+            scheduleApply()
+        }
+    }
+
     private func scheduleApply() {
         guard !pendingApply else { return }
         pendingApply = true
@@ -99,6 +187,12 @@ final class StickyNoteWindowResizer: ObservableObject {
 
         guard desiredContentHeight.isFinite, desiredContentHeight > 0 else { return }
         guard abs(desiredContentHeight - lastAppliedContentHeight) > 0.5 else { return }
+
+        if isUserDraggingWindow {
+            needsApplyAfterDrag = true
+            return
+        }
+
         lastAppliedContentHeight = desiredContentHeight
 
         var newMin = window.contentMinSize
@@ -122,13 +216,57 @@ final class StickyNoteWindowResizer: ObservableObject {
         animateNextApply = false
 
         if shouldAnimate {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = duration
-                context.allowsImplicitAnimation = true
-                window.animator().setFrame(frame, display: true)
-            }
+            startManualResizeAnimation(to: frame, duration: duration)
         } else {
+            animationTimer?.invalidate()
+            animationTimer = nil
+            isAnimatingApply = false
             window.setFrame(frame, display: true, animate: false)
+        }
+    }
+
+    private func startManualResizeAnimation(to targetFrame: NSRect, duration: TimeInterval) {
+        guard let window else { return }
+
+        animationTimer?.invalidate()
+        animationTimer = nil
+
+        isAnimatingApply = true
+        animationStartTime = CACurrentMediaTime()
+        animationDuration = max(0.01, duration)
+        animationStartFrame = window.frame
+        animationTargetFrame = targetFrame
+
+        let tickInterval: TimeInterval = 1.0 / 60.0
+        animationTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] timer in
+            guard let self, let window = self.window else {
+                timer.invalidate()
+                return
+            }
+
+            let elapsed = CACurrentMediaTime() - self.animationStartTime
+            let rawT = min(max(elapsed / self.animationDuration, 0), 1)
+            let t = rawT * rawT * (3 - 2 * rawT)
+
+            let start = self.animationStartFrame
+            let end = self.animationTargetFrame
+
+            let newX = start.origin.x + (end.origin.x - start.origin.x) * t
+            let newY = start.origin.y + (end.origin.y - start.origin.y) * t
+            let newW = start.size.width + (end.size.width - start.size.width) * t
+            let newH = start.size.height + (end.size.height - start.size.height) * t
+
+            window.setFrame(NSRect(x: newX, y: newY, width: newW, height: newH), display: true, animate: false)
+
+            if rawT >= 1 {
+                timer.invalidate()
+                self.animationTimer = nil
+                self.isAnimatingApply = false
+            }
+        }
+
+        if let animationTimer {
+            RunLoop.main.add(animationTimer, forMode: .common)
         }
     }
 }
@@ -360,23 +498,34 @@ private struct NativeTextView: NSViewRepresentable {
 
 private struct WindowDragOverlay: NSViewRepresentable {
     var enabled: Bool
+    var onDragStart: () -> Void = {}
+    var onDragEnd: () -> Void = {}
     var onDoubleClick: () -> Void
 
     func makeNSView(context: Context) -> DragOverlayView {
         let view = DragOverlayView()
         view.enabled = enabled
+        view.onDragStart = onDragStart
+        view.onDragEnd = onDragEnd
         view.onDoubleClick = onDoubleClick
         return view
     }
 
     func updateNSView(_ nsView: DragOverlayView, context: Context) {
         nsView.enabled = enabled
+        nsView.onDragStart = onDragStart
+        nsView.onDragEnd = onDragEnd
         nsView.onDoubleClick = onDoubleClick
     }
 
     final class DragOverlayView: NSView {
         var enabled: Bool = false
+        var onDragStart: () -> Void = {}
+        var onDragEnd: () -> Void = {}
         var onDoubleClick: () -> Void = {}
+        private var dragStarted: Bool = false
+        private var dragStartMouseScreenPoint: NSPoint = .zero
+        private var dragStartWindowOrigin: NSPoint = .zero
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
             enabled
@@ -397,7 +546,47 @@ private struct WindowDragOverlay: NSViewRepresentable {
                 return
             }
 
-            window?.performDrag(with: event)
+            dragStarted = false
+            if let window {
+                dragStartWindowOrigin = window.frame.origin
+                dragStartMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
+            }
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard enabled, let window else {
+                super.mouseDragged(with: event)
+                return
+            }
+
+            let currentMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
+
+            if !dragStarted {
+                dragStarted = true
+                onDragStart()
+                // Activation/resizing can happen between mouseDown and the first mouseDragged.
+                // Reset the baseline here to prevent a "jump" on the first drag tick.
+                dragStartWindowOrigin = window.frame.origin
+                dragStartMouseScreenPoint = currentMouseScreenPoint
+                return
+            }
+
+            let dx = currentMouseScreenPoint.x - dragStartMouseScreenPoint.x
+            let dy = currentMouseScreenPoint.y - dragStartMouseScreenPoint.y
+            let newOrigin = NSPoint(x: dragStartWindowOrigin.x + dx, y: dragStartWindowOrigin.y + dy)
+            window.setFrameOrigin(newOrigin)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            defer { dragStarted = false }
+            guard enabled else {
+                super.mouseUp(with: event)
+                return
+            }
+
+            if dragStarted {
+                onDragEnd()
+            }
         }
     }
 }
@@ -540,7 +729,11 @@ struct StickyNoteView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
-            WindowDragOverlay(enabled: !isEditing) {
+            WindowDragOverlay(
+                enabled: !isEditing,
+                onDragStart: { resizer.beginUserDrag() },
+                onDragEnd: { resizer.endUserDrag() }
+            ) {
                 isEditing = true
                 DispatchQueue.main.async {
                     isTextEditorFocused = true
