@@ -180,35 +180,43 @@ final class StickyNoteWindowResizer: ObservableObject {
         animationTargetFrame = targetFrame
 
         let tickInterval: TimeInterval = 1.0 / 60.0
-        animationTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] timer in
-            guard let self, let window = self.window else {
-                timer.invalidate()
-                return
-            }
+        let timer = Timer(
+            timeInterval: tickInterval,
+            target: self,
+            selector: #selector(handleManualResizeAnimationTick(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+        animationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
 
-            let elapsed = CACurrentMediaTime() - self.animationStartTime
-            let rawT = min(max(elapsed / self.animationDuration, 0), 1)
-            let t = rawT * rawT * (3 - 2 * rawT)
-
-            let start = self.animationStartFrame
-            let end = self.animationTargetFrame
-
-            let newX = start.origin.x + (end.origin.x - start.origin.x) * t
-            let newY = start.origin.y + (end.origin.y - start.origin.y) * t
-            let newW = start.size.width + (end.size.width - start.size.width) * t
-            let newH = start.size.height + (end.size.height - start.size.height) * t
-
-            window.setFrame(NSRect(x: newX, y: newY, width: newW, height: newH), display: true, animate: false)
-
-            if rawT >= 1 {
-                timer.invalidate()
-                self.animationTimer = nil
-                self.isAnimatingApply = false
-            }
+    @objc private func handleManualResizeAnimationTick(_ timer: Timer) {
+        guard let window else {
+            timer.invalidate()
+            animationTimer = nil
+            isAnimatingApply = false
+            return
         }
 
-        if let animationTimer {
-            RunLoop.main.add(animationTimer, forMode: .common)
+        let elapsed = CACurrentMediaTime() - animationStartTime
+        let rawT = min(max(elapsed / animationDuration, 0), 1)
+        let t = rawT * rawT * (3 - 2 * rawT)
+
+        let start = animationStartFrame
+        let end = animationTargetFrame
+
+        let newX = start.origin.x + (end.origin.x - start.origin.x) * t
+        let newY = start.origin.y + (end.origin.y - start.origin.y) * t
+        let newW = start.size.width + (end.size.width - start.size.width) * t
+        let newH = start.size.height + (end.size.height - start.size.height) * t
+
+        window.setFrame(NSRect(x: newX, y: newY, width: newW, height: newH), display: true, animate: false)
+
+        if rawT >= 1 {
+            timer.invalidate()
+            animationTimer = nil
+            isAnimatingApply = false
         }
     }
 }
@@ -270,12 +278,12 @@ private struct NativeTextView: NSViewRepresentable {
         textView.textColor = textColor
         textView.string = text
         textView.textContainerInset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
-        textView.textContainer?.lineFragmentPadding = 0
+        unsafe textView.textContainer?.lineFragmentPadding = 0
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.heightTracksTextView = false
+        unsafe textView.textContainer?.widthTracksTextView = true
+        unsafe textView.textContainer?.heightTracksTextView = false
 
         textView.onFocusChange = { focused in
             DispatchQueue.main.async {
@@ -294,7 +302,7 @@ private struct NativeTextView: NSViewRepresentable {
             guard let scrollView, let textView else { return }
             let measured = Self.measuredContentHeight(for: textView)
             DispatchQueue.main.async {
-                guard scrollView.window != nil else { return }
+                guard unsafe scrollView.window != nil else { return }
                 onMeasuredContentHeight?(measured)
             }
         }
@@ -314,9 +322,9 @@ private struct NativeTextView: NSViewRepresentable {
 
         let inset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.heightTracksTextView = false
+        unsafe textView.textContainer?.lineFragmentPadding = 0
+        unsafe textView.textContainer?.widthTracksTextView = true
+        unsafe textView.textContainer?.heightTracksTextView = false
 
         let requiredHeight = Self.measuredContentHeight(for: textView)
         let contentSize = nsView.contentSize
@@ -331,12 +339,14 @@ private struct NativeTextView: NSViewRepresentable {
         onMeasuredContentHeight?(requiredHeight)
 
         if isFocused {
-            if nsView.window?.firstResponder !== textView {
-                nsView.window?.makeFirstResponder(textView)
+            let window = unsafe nsView.window
+            if window?.firstResponder !== textView {
+                window?.makeFirstResponder(textView)
             }
         } else {
-            if nsView.window?.firstResponder === textView {
-                nsView.window?.makeFirstResponder(nil)
+            let window = unsafe nsView.window
+            if window?.firstResponder === textView {
+                window?.makeFirstResponder(nil)
             }
         }
     }
@@ -346,10 +356,9 @@ private struct NativeTextView: NSViewRepresentable {
     }
 
     private static func measuredContentHeight(for textView: NSTextView) -> CGFloat {
-        guard
-            let textContainer = textView.textContainer,
-            let layoutManager = textView.layoutManager
-        else {
+        let textContainer = unsafe textView.textContainer
+        let layoutManager = unsafe textView.layoutManager
+        guard let textContainer, let layoutManager else {
             return max(0, textView.bounds.height)
         }
 
@@ -379,8 +388,7 @@ private struct NativeTextView: NSViewRepresentable {
     final class CallbackTextView: NSTextView {
         var onFocusChange: (Bool) -> Void = { _ in }
         var onEndEditing: () -> Void = {}
-        private var windowResignObserver: Any?
-        private var appResignObserver: Any?
+        private weak var observedWindow: NSWindow?
 
         override func becomeFirstResponder() -> Bool {
             let became = super.becomeFirstResponder()
@@ -406,32 +414,35 @@ private struct NativeTextView: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
 
-            if let windowResignObserver {
-                NotificationCenter.default.removeObserver(windowResignObserver)
-                self.windowResignObserver = nil
+            if let observedWindow {
+                NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: observedWindow)
             }
-            if let appResignObserver {
-                NotificationCenter.default.removeObserver(appResignObserver)
-                self.appResignObserver = nil
-            }
+            NotificationCenter.default.removeObserver(self, name: NSApplication.didResignActiveNotification, object: NSApp)
+            observedWindow = nil
 
-            guard let window else { return }
+            guard let window = unsafe self.window else { return }
+            observedWindow = window
 
-            windowResignObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onEndEditing()
-            }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleWindowDidResignKey(_:)),
+                name: NSWindow.didResignKeyNotification,
+                object: window
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAppDidResignActive(_:)),
+                name: NSApplication.didResignActiveNotification,
+                object: NSApp
+            )
+        }
 
-            appResignObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: NSApp,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onEndEditing()
-            }
+        @objc private func handleWindowDidResignKey(_ notification: Notification) {
+            onEndEditing()
+        }
+
+        @objc private func handleAppDidResignActive(_ notification: Notification) {
+            onEndEditing()
         }
     }
 }
@@ -478,23 +489,24 @@ private struct WindowDragOverlay: NSViewRepresentable {
             enabled ? self : nil
         }
 
-        override func mouseDown(with event: NSEvent) {
-            guard enabled else {
-                super.mouseDown(with: event)
-                return
-            }
+	        override func mouseDown(with event: NSEvent) {
+	            guard enabled else {
+	                super.mouseDown(with: event)
+	                return
+	            }
 
             if event.clickCount >= 2 {
                 onDoubleClick()
                 return
-            }
-
-            dragStarted = false
-            if let window {
-                mouseDownWindowFrame = window.frame
-                dragStartWindowOrigin = mouseDownWindowFrame.origin
-                dragStartMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
-
+	            }
+	
+	            dragStarted = false
+	            let window = unsafe self.window
+	            if let window {
+	                mouseDownWindowFrame = window.frame
+	                dragStartWindowOrigin = mouseDownWindowFrame.origin
+	                dragStartMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
+	
                 // If the window is currently inactive, activation/resizing can kick off immediately after mouseDown.
                 // Start a "drag session" now so the resizer can defer any frame changes until mouseUp.
                 if !window.isKeyWindow {
@@ -504,13 +516,13 @@ private struct WindowDragOverlay: NSViewRepresentable {
                     dragStartWindowOrigin = mouseDownWindowFrame.origin
                 }
             }
-        }
-
-        override func mouseDragged(with event: NSEvent) {
-            guard enabled, let window else {
-                super.mouseDragged(with: event)
-                return
-            }
+	        }
+	
+	        override func mouseDragged(with event: NSEvent) {
+	            guard enabled, let window = unsafe self.window else {
+	                super.mouseDragged(with: event)
+	                return
+	            }
 
             let currentMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
 

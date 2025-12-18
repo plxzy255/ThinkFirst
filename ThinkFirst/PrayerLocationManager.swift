@@ -56,7 +56,7 @@ final class PrayerLocationManager: NSObject, ObservableObject, CLLocationManager
         lastErrorDescription = nil
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
         lastErrorDescription = error.localizedDescription
     }
 }
