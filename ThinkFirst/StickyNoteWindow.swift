@@ -526,6 +526,7 @@ private struct WindowDragOverlay: NSViewRepresentable {
         private var dragStarted: Bool = false
         private var dragStartMouseScreenPoint: NSPoint = .zero
         private var dragStartWindowOrigin: NSPoint = .zero
+        private var mouseDownWindowFrame: NSRect = .zero
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
             enabled
@@ -548,8 +549,18 @@ private struct WindowDragOverlay: NSViewRepresentable {
 
             dragStarted = false
             if let window {
-                dragStartWindowOrigin = window.frame.origin
+                mouseDownWindowFrame = window.frame
+                dragStartWindowOrigin = mouseDownWindowFrame.origin
                 dragStartMouseScreenPoint = window.convertPoint(toScreen: event.locationInWindow)
+
+                // If the window is currently inactive, activation/resizing can kick off immediately after mouseDown.
+                // Start a "drag session" now so the resizer can defer any frame changes until mouseUp.
+                if !window.isKeyWindow {
+                    dragStarted = true
+                    onDragStart()
+                    mouseDownWindowFrame = window.frame
+                    dragStartWindowOrigin = mouseDownWindowFrame.origin
+                }
             }
         }
 
@@ -564,17 +575,24 @@ private struct WindowDragOverlay: NSViewRepresentable {
             if !dragStarted {
                 dragStarted = true
                 onDragStart()
-                // Activation/resizing can happen between mouseDown and the first mouseDragged.
-                // Reset the baseline here to prevent a "jump" on the first drag tick.
-                dragStartWindowOrigin = window.frame.origin
-                dragStartMouseScreenPoint = currentMouseScreenPoint
-                return
+                // If the window resized/repositioned between mouseDown and the first mouseDragged (activation),
+                // reset baseline to avoid a jump.
+                if window.frame != mouseDownWindowFrame {
+                    mouseDownWindowFrame = window.frame
+                    dragStartWindowOrigin = mouseDownWindowFrame.origin
+                    dragStartMouseScreenPoint = currentMouseScreenPoint
+                }
             }
 
             let dx = currentMouseScreenPoint.x - dragStartMouseScreenPoint.x
             let dy = currentMouseScreenPoint.y - dragStartMouseScreenPoint.y
             let newOrigin = NSPoint(x: dragStartWindowOrigin.x + dx, y: dragStartWindowOrigin.y + dy)
-            window.setFrameOrigin(newOrigin)
+            let scale = max(1, window.backingScaleFactor)
+            let snapped = NSPoint(
+                x: (newOrigin.x * scale).rounded() / scale,
+                y: (newOrigin.y * scale).rounded() / scale
+            )
+            window.setFrameOrigin(snapped)
         }
 
         override func mouseUp(with event: NSEvent) {
