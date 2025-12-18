@@ -67,6 +67,8 @@ struct ThinkFirstSettingsView: View {
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.3
     @AppStorage(StickyNoteFontSizeOption.storageKey) private var stickyNoteFontSizeOptionRaw: String = StickyNoteFontSizeOption.normal.rawValue
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
+    @AppStorage("prayerAlertEnabled") private var prayerAlertEnabled: Bool = false
+    @AppStorage("prayerAlertTestNonce") private var prayerAlertTestNonce: Int = 0
     @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
 
     var body: some View {
@@ -110,6 +112,14 @@ struct ThinkFirstSettingsView: View {
                             }
 
                         if prayerEnabled {
+                            Toggle("Prayer time alert (yellow tint)", isOn: $prayerAlertEnabled)
+
+                            Button("Test alert") {
+                                prayerAlertTestNonce += 1
+                            }
+                            .disabled(!prayerAlertEnabled)
+                            .buttonStyle(.bordered)
+
                             Group {
                                 switch prayerLocationManager.authorizationStatus {
                                 case .authorizedAlways, .authorizedWhenInUse:

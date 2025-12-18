@@ -3,6 +3,7 @@
 
 import AppKit
 import CoreLocation
+import PrayerKit
 import SwiftUI
 import Combine
 import QuartzCore
@@ -107,11 +108,15 @@ final class StickyNoteWindowResizer: ObservableObject {
     }
 
     func setMeasuredTextHeight(_ height: CGFloat) {
+        guard height.isFinite else { return }
+        if abs(measuredTextHeight - height) <= 0.5 { return }
         measuredTextHeight = height
         scheduleApply()
     }
 
     func setMeasuredPrayerHeight(_ height: CGFloat) {
+        guard height.isFinite else { return }
+        if abs(measuredPrayerHeight - height) <= 0.5 { return }
         measuredPrayerHeight = height
         scheduleApply()
     }
@@ -269,12 +274,6 @@ private struct NativeTextView: NSViewRepresentable {
     var onMeasuredContentHeight: ((CGFloat) -> Void)? = nil
 
     private final class NonScrollingMeasuringScrollView: NSScrollView {
-        var onLayout: (() -> Void)?
-        override func layout() {
-            super.layout()
-            onLayout?()
-        }
-
         override func scrollWheel(with event: NSEvent) {
             // Never allow internal scrolling; the window grows instead.
         }
@@ -331,15 +330,6 @@ private struct NativeTextView: NSViewRepresentable {
             }
         }
 
-        scrollView.onLayout = { [weak scrollView, weak textView] in
-            guard let scrollView, let textView else { return }
-            let measured = Self.measuredContentHeight(for: textView)
-            DispatchQueue.main.async {
-                guard unsafe scrollView.window != nil else { return }
-                onMeasuredContentHeight?(measured)
-            }
-        }
-
         scrollView.documentView = textView
         return scrollView
     }
@@ -347,29 +337,46 @@ private struct NativeTextView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? CallbackTextView else { return }
 
-        if textView.string != text { textView.string = text }
+        var needsRemeasure = false
+
+        if textView.string != text {
+            textView.string = text
+            needsRemeasure = true
+        }
         if textView.isEditable != isEditable { textView.isEditable = isEditable }
         if textView.isSelectable != isEditable { textView.isSelectable = isEditable }
-        if textView.font != font { textView.font = font }
+        if textView.font != font {
+            textView.font = font
+            needsRemeasure = true
+        }
         if textView.textColor != textColor { textView.textColor = textColor }
 
         let inset = NSSize(width: textContainerInset.width, height: textContainerInset.height)
-        if textView.textContainerInset != inset { textView.textContainerInset = inset }
+        if textView.textContainerInset != inset {
+            textView.textContainerInset = inset
+            needsRemeasure = true
+        }
         unsafe textView.textContainer?.lineFragmentPadding = 0
         unsafe textView.textContainer?.widthTracksTextView = true
         unsafe textView.textContainer?.heightTracksTextView = false
 
-        let requiredHeight = Self.measuredContentHeight(for: textView)
         let contentSize = nsView.contentSize
 
         var frame = textView.frame
-        frame.size.width = contentSize.width
+        let backingScaleFactor = (unsafe nsView.window?.backingScaleFactor) ?? NSScreen.main?.backingScaleFactor ?? 2
+        let roundedWidth = (contentSize.width * backingScaleFactor).rounded() / backingScaleFactor
+        frame.size.width = roundedWidth
+
+        let requiredHeight = context.coordinator.requiredHeight(
+            for: textView,
+            availableWidth: roundedWidth,
+            forceRemeasure: needsRemeasure
+        )
         frame.size.height = max(contentSize.height, requiredHeight)
         if textView.frame != frame { textView.frame = frame }
 
-        // Ensure programmatic text changes (e.g. trimming trailing newlines on end editing)
-        // still trigger a resize even if no layout pass occurs.
-        onMeasuredContentHeight?(requiredHeight)
+        // Avoid measuring/reporting continuously during unrelated SwiftUI updates (e.g. tint opacity animations).
+        context.coordinator.reportMeasuredHeightIfNeeded(requiredHeight)
 
         if isFocused {
             let window = unsafe nsView.window
@@ -409,16 +416,50 @@ private struct NativeTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         private let onMeasuredContentHeight: ((CGFloat) -> Void)?
+        private var lastReportedMeasuredHeight: CGFloat = -1
+        private var lastMeasuredWidth: CGFloat = -1
+        private var lastMeasuredFontPointSize: CGFloat = -1
+        private var lastMeasuredInset: NSSize = NSSize(width: -1, height: -1)
+        private var cachedMeasuredHeight: CGFloat = -1
 
         init(text: Binding<String>, onMeasuredContentHeight: ((CGFloat) -> Void)?) {
             _text = text
             self.onMeasuredContentHeight = onMeasuredContentHeight
         }
 
+        func requiredHeight(for textView: NSTextView, availableWidth: CGFloat, forceRemeasure: Bool) -> CGFloat {
+            let fontPointSize = textView.font?.pointSize ?? NSFont.systemFontSize
+            let inset = textView.textContainerInset
+
+            let widthChanged = abs(lastMeasuredWidth - availableWidth) > 0.5
+            let fontChanged = abs(lastMeasuredFontPointSize - fontPointSize) > 0.01
+            let insetChanged = lastMeasuredInset != inset
+
+            if forceRemeasure || widthChanged || fontChanged || insetChanged || cachedMeasuredHeight < 0 {
+                lastMeasuredWidth = availableWidth
+                lastMeasuredFontPointSize = fontPointSize
+                lastMeasuredInset = inset
+                cachedMeasuredHeight = NativeTextView.measuredContentHeight(for: textView)
+            }
+
+            if cachedMeasuredHeight.isFinite, cachedMeasuredHeight >= 0 {
+                return cachedMeasuredHeight
+            }
+            return 0
+        }
+
+        func reportMeasuredHeightIfNeeded(_ height: CGFloat) {
+            guard height.isFinite else { return }
+            guard abs(lastReportedMeasuredHeight - height) > 0.5 else { return }
+            lastReportedMeasuredHeight = height
+            onMeasuredContentHeight?(height)
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
-            onMeasuredContentHeight?(NativeTextView.measuredContentHeight(for: textView))
+            cachedMeasuredHeight = NativeTextView.measuredContentHeight(for: textView)
+            reportMeasuredHeightIfNeeded(cachedMeasuredHeight)
         }
     }
 
@@ -607,18 +648,82 @@ private struct PrayerAccessoryHeightPreferenceKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
+@MainActor
+final class PrayerAlertScheduler: ObservableObject {
+    @Published private(set) var triggerToken: Int = 0
+
+    private var isEnabled: Bool = false
+    private var coordinate: CLLocationCoordinate2D?
+    private var timeZone: TimeZone = .current
+    private var timer: Timer?
+
+    func configure(enabled: Bool, coordinate: CLLocationCoordinate2D?, timeZone: TimeZone = .current) {
+        isEnabled = enabled
+        self.coordinate = coordinate
+        self.timeZone = timeZone
+        reschedule(from: .now)
+    }
+
+    func invalidate() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func reschedule(from date: Date) {
+        invalidate()
+
+        guard isEnabled, let coordinate else { return }
+
+        guard let next = PrayerKit.nextPrayer(
+            now: date,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            timeZone: timeZone
+        ) else { return }
+
+        let fireDate = next.time
+
+        // Avoid immediate loops if the computed next prayer is effectively "now".
+        if fireDate <= date.addingTimeInterval(0.5) {
+            reschedule(from: date.addingTimeInterval(1))
+            return
+        }
+
+        let t = Timer(
+            fireAt: fireDate,
+            interval: 0,
+            target: self,
+            selector: #selector(handleFire(_:)),
+            userInfo: nil,
+            repeats: false
+        )
+        timer = t
+        RunLoop.main.add(t, forMode: .common)
+    }
+
+    @objc private func handleFire(_ timer: Timer) {
+        triggerToken &+= 1
+        reschedule(from: Date().addingTimeInterval(1))
+    }
+}
+
 // The content that appears in the sticky note window
 struct StickyNoteView: View {
     @StateObject private var resizer: StickyNoteWindowResizer
+    @StateObject private var prayerAlertScheduler = PrayerAlertScheduler()
 
     @AppStorage("stickyNoteText") private var text: String = ""
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
     @AppStorage(StickyNoteFontSizeOption.storageKey) private var stickyNoteFontSizeOptionRaw: String = StickyNoteFontSizeOption.normal.rawValue
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
+    @AppStorage("prayerAlertEnabled") private var prayerAlertEnabled: Bool = false
+    @AppStorage("prayerAlertTestNonce") private var prayerAlertTestNonce: Int = 0
 
     @State private var isEditing: Bool = false
     @State private var isTextEditorFocused: Bool = false
     @State private var isPrayerAccessoryVisible: Bool = false
+    @State private var isPrayerAlertTintVisible: Bool = false
+    @State private var prayerAlertResetTask: Task<Void, Never>?
 
     @Environment(\.controlActiveState) private var controlActiveState
 
@@ -685,7 +790,7 @@ struct StickyNoteView: View {
                             Color.clear
                                 .preference(key: PrayerAccessoryHeightPreferenceKey.self, value: proxy.size.height)
                         }
-                    }
+                }
             }
         }
         .animation(.easeInOut(duration: 0.22), value: controlsAreVisible)
@@ -696,6 +801,7 @@ struct StickyNoteView: View {
             resizer.setMinTextHeight(minTextContentHeight)
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             resizer.setPrayerEnabled(prayerEnabled)
+            updatePrayerAlertScheduler()
             if prayerEnabled {
                 isPrayerAccessoryVisible = false
                 DispatchQueue.main.async {
@@ -705,6 +811,12 @@ struct StickyNoteView: View {
             } else {
                 isPrayerAccessoryVisible = false
             }
+        }
+        .onDisappear {
+            prayerAlertResetTask?.cancel()
+            prayerAlertResetTask = nil
+            isPrayerAlertTintVisible = false
+            prayerAlertScheduler.invalidate()
         }
         .onChange(of: isEditing) { _, _ in
             resizer.animateNextResize()
@@ -727,9 +839,13 @@ struct StickyNoteView: View {
             }
             resizer.setPrayerEnabled(enabled)
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
+            updatePrayerAlertScheduler()
             if enabled {
                 prayerLocationManager.requestAccessAndLocation()
             }
+        }
+        .onChange(of: prayerAlertEnabled) { _, _ in
+            updatePrayerAlertScheduler()
         }
         .onChange(of: stickyNoteFontSizeOptionRaw) { _, _ in
             resizer.setMinTextHeight(minTextContentHeight)
@@ -749,18 +865,8 @@ struct StickyNoteView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            WindowDragOverlay(
-                enabled: !isEditing,
-                onDragStart: { resizer.beginUserDrag() },
-                onDragEnd: { resizer.endUserDrag() }
-            ) {
-                isEditing = true
-                DispatchQueue.main.async {
-                    isTextEditorFocused = true
-                }
-            }
-        }
+        .overlay { alertTintOverlay }
+        .overlay { dragOverlay }
         .overlay(alignment: .topTrailing) {
             if isEditing {
                 doneButton
@@ -770,6 +876,29 @@ struct StickyNoteView: View {
                 settingsButton
                     .padding(.top, StickyNoteLayout.controlsButtonInset)
                     .padding(.trailing, StickyNoteLayout.controlsButtonInset)
+            }
+        }
+        .onReceive(prayerLocationManager.$lastKnownCoordinate) { _ in updatePrayerAlertScheduler() }
+        .onReceive(prayerAlertScheduler.$triggerToken) { _ in triggerPrayerAlertPulse() }
+        .onChange(of: prayerAlertTestNonce) { _, _ in triggerPrayerAlertPulse() }
+    }
+
+    private var alertTintOverlay: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(Color.yellow)
+            .opacity(isPrayerAlertTintVisible ? 0.14 : 0)
+            .allowsHitTesting(false)
+    }
+
+    private var dragOverlay: some View {
+        WindowDragOverlay(
+            enabled: !isEditing,
+            onDragStart: { resizer.beginUserDrag() },
+            onDragEnd: { resizer.endUserDrag() }
+        ) {
+            isEditing = true
+            DispatchQueue.main.async {
+                isTextEditorFocused = true
             }
         }
     }
@@ -834,6 +963,42 @@ struct StickyNoteView: View {
 
         isTextEditorFocused = false
         isEditing = false
+    }
+
+    private func updatePrayerAlertScheduler() {
+        prayerAlertScheduler.configure(
+            enabled: prayerEnabled && prayerAlertEnabled,
+            coordinate: prayerLocationManager.lastKnownCoordinate,
+            timeZone: .current
+        )
+    }
+
+    private func triggerPrayerAlertPulse() {
+        guard prayerEnabled, prayerAlertEnabled else { return }
+
+        prayerAlertResetTask?.cancel()
+        prayerAlertResetTask = Task { @MainActor in
+            let pulseCount = 3
+            let pulseDuration: TimeInterval = 0.9
+
+            isPrayerAlertTintVisible = false
+
+            for _ in 0..<pulseCount {
+                if Task.isCancelled { return }
+                withAnimation(.easeInOut(duration: pulseDuration)) {
+                    isPrayerAlertTintVisible = true
+                }
+                try? await Task.sleep(nanoseconds: UInt64(pulseDuration * 1_000_000_000))
+
+                if Task.isCancelled { return }
+                withAnimation(.easeInOut(duration: pulseDuration)) {
+                    isPrayerAlertTintVisible = false
+                }
+                try? await Task.sleep(nanoseconds: UInt64(pulseDuration * 1_000_000_000))
+            }
+
+            isPrayerAlertTintVisible = false
+        }
     }
 }
 
