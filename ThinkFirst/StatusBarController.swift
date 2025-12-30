@@ -44,12 +44,15 @@ final class SettingsPanelController: NSWindowController {
 final class StatusBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var stickyNoteWindowController: StickyNoteWindowController? = nil
+    private var twitterWindowController: TwitterWindowController? = nil
     private let statusMenu = NSMenu()
     private let toggleVisibilityItem = NSMenuItem()
+    private let toggleTwitterItem = NSMenuItem()
 
     override init() {
         super.init()
         stickyNoteWindowController = StickyNoteWindowController()
+        twitterWindowController = TwitterWindowController()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -60,6 +63,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         toggleVisibilityItem.target = self
         toggleVisibilityItem.action = #selector(toggleStickyNoteFromMenu)
         statusMenu.addItem(toggleVisibilityItem)
+
+        toggleTwitterItem.target = self
+        toggleTwitterItem.action = #selector(toggleTwitterWidgetFromMenu)
+        statusMenu.addItem(toggleTwitterItem)
 
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = [.command]
@@ -87,14 +94,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         updateToggleVisibilityTitle()
+        updateToggleTwitterTitle()
     }
 
     private func updateToggleVisibilityTitle() {
         guard let controller = stickyNoteWindowController else {
-            toggleVisibilityItem.title = "Show"
+            toggleVisibilityItem.title = "Show Sticky Note"
             return
         }
-        toggleVisibilityItem.title = controller.isStickyNoteVisible ? "Hide" : "Show"
+        toggleVisibilityItem.title = controller.isStickyNoteVisible ? "Hide Sticky Note" : "Show Sticky Note"
+    }
+
+    private func updateToggleTwitterTitle() {
+        guard let controller = twitterWindowController else {
+            toggleTwitterItem.title = "Show Twitter Widget"
+            return
+        }
+        toggleTwitterItem.title = controller.isVisible ? "Hide Twitter Widget" : "Show Twitter Widget"
     }
 
     @objc private func toggleStickyNoteFromMenu() {
@@ -105,6 +121,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             controller.showStickyNote()
         }
         updateToggleVisibilityTitle()
+    }
+
+    @objc private func toggleTwitterWidgetFromMenu() {
+        guard let controller = twitterWindowController else { return }
+        if controller.isVisible {
+            controller.hide()
+        } else {
+            controller.show()
+        }
+        updateToggleTwitterTitle()
     }
 
     @objc private func quitApp() {

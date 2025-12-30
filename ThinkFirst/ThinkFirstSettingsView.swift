@@ -1,6 +1,85 @@
 import CoreLocation
 import SwiftUI
 
+struct TwitterSettingsView: View {
+    @ObservedObject private var service = TwitterService.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LabeledContent("Client ID") {
+                TextField("Client ID", text: $service.clientID)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            LabeledContent("Client Secret") {
+                SecureField("Client Secret", text: $service.clientSecret)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack {
+                if service.isAuthenticated {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Authenticated")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button("Sign Out") {
+                        // Reset tokens
+                        UserDefaults.standard.removeObject(forKey: "twitterAccessToken")
+                        UserDefaults.standard.removeObject(forKey: "twitterRefreshToken")
+                        UserDefaults.standard.removeObject(forKey: "twitterTokenExpiry")
+                        service.isAuthenticated = false
+                    }
+                } else {
+                    Button("Sign In with X") {
+                        service.authorize()
+                    }
+                    .disabled(service.clientID.isEmpty || service.clientSecret.isEmpty)
+                }
+            }
+            .padding(.top, 4)
+
+            Text("Enter your credentials from the X Developer Portal. Ensure 'thinkfirst://auth' is set as a callback URL.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if service.isAuthenticated {
+                Divider()
+
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("Bookmarks: \(service.bookmarks.count)")
+                            .font(.callout)
+                        if service.lastSyncDate > 0 {
+                            Text("Last Sync: \(Date(timeIntervalSince1970: service.lastSyncDate).formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button {
+                        Task {
+                            await service.refreshData()
+                        }
+                    } label: {
+                        if service.isSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(service.isSyncing)
+                }
+            }
+        }
+    }
+}
+
 private struct SettingsSectionCard<Content: View>: View {
     let title: String
     let systemImage: String
@@ -100,6 +179,10 @@ struct ThinkFirstSettingsView: View {
                         Slider(value: $inactiveBackgroundOpacity, in: 0...1)
                             .frame(maxWidth: 220)
                     }
+                }
+
+                SettingsSectionCard(title: "Twitter / X", systemImage: "bird") {
+                    TwitterSettingsView()
                 }
 
                 SettingsSectionCard(title: "Prayer", systemImage: "hands.sparkles") {
