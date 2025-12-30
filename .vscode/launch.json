@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ThinkFirst (LLDB)",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Build/Products/Debug/ThinkFirst.app/Contents/MacOS/ThinkFirst",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": ["swift"],
+            "preLaunchTask": "build-thinkfirst"
+        }
+    ]
+}

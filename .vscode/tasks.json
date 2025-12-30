@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-thinkfirst",
+            "type": "shell",
+            "command": "xcodebuild",
+            "args": [
+                "-scheme",
+                "ThinkFirst",
+                "-configuration",
+                "Debug",
+                "-derivedDataPath",
+                "build",
+                "build"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "problemMatcher": "$swift",
+            "isBackground": false
+        }
+    ]
+}
