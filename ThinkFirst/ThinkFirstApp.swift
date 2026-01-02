@@ -27,5 +27,18 @@ struct ThinkFirstApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     var body: some Scene {
         Settings {}
+            .commands {
+                CommandGroup(replacing: .newItem) { }
+            }
+
+        // Handle URL Scheme
+        WindowGroup {
+            Color.clear
+                .onOpenURL { url in
+                    TwitterService.shared.handleCallback(url: url)
+                }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 0, height: 0)
     }
 }
