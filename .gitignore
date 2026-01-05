@@ -21,3 +21,8 @@ Podfile.lock
 # IDE
 .idea/
 .vscode/
+
+# Xcode user state
+*.xcuserstate
+*.xcuserdatad
+xcuserdata/
