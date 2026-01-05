@@ -11,13 +11,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F727078B2F0C06870035ED9D /* ThinkFirst.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ThinkFirst.xcodeproj; sourceTree = "<group>"; };
 		F7BE3D382EEF9E9D00FB648F /* ThinkFirst.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ThinkFirst.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */ = {
+		F7BE3D3A2EEF9E9D00FB648F /* . */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = .;
+			path = ThinkFirst;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,10 +33,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		F727078E2F0C06870035ED9D /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
 		F7BE3D2F2EEF9E9D00FB648F = {
 			isa = PBXGroup;
 			children = (
-				F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */,
+				F7BE3D3A2EEF9E9D00FB648F /* . */,
 				F7BE3D392EEF9E9D00FB648F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -62,7 +68,7 @@
 			buildRules = (
 			);
 			fileSystemSynchronizedGroups = (
-				F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */,
+				F7BE3D3A2EEF9E9D00FB648F /* . */,
 			);
 			name = ThinkFirst;
 			packageProductDependencies = (
@@ -102,6 +108,12 @@
 			preferredProjectObjectVersion = 90;
 			productRefGroup = F7BE3D392EEF9E9D00FB648F /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = F727078E2F0C06870035ED9D /* Products */;
+					ProjectRef = F727078B2F0C06870035ED9D /* ThinkFirst.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				F7BE3D372EEF9E9D00FB648F /* ThinkFirst */,
