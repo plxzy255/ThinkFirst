@@ -7,6 +7,10 @@
 build/
 DerivedData/
 
+# Local SourceKit-LSP / BSP
+buildServer.json
+sourcekit_lsp_readme.md
+
 # CocoaPods
 Pods/
 Podfile.lock

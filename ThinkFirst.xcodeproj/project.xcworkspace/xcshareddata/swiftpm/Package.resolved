@@ -1,5 +1,5 @@
 {
-  "originHash" : "f22e450028b8087709c92cd26a482f0b780bbda05b472f4632acdec2883e6bff",
+  "originHash" : "a528149b640d220ef8f17fce254716ea0b7714afdb8d63e384b5de79f2e2640b",
   "pins" : [
     {
       "identity" : "adhan-swift",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "6dc8309951fdaa0cd124c52b9a8de7e0da1ff2ce",
         "version" : "1.4.0"
-      }
-    },
-    {
-      "identity" : "prayerkit",
-      "kind" : "remoteSourceControl",
-      "location" : "git@github.com:plxzy255/PrayerKit.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "daeb6c95395dc8ed81915628ac878335d75307b4"
       }
     }
   ],

@@ -1,4 +1,5 @@
 import CoreLocation
+import PrayerKit
 import SwiftUI
 
 private struct SettingsSectionCard<Content: View>: View {

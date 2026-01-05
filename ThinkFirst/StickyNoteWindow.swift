@@ -648,69 +648,9 @@ private struct PrayerAccessoryHeightPreferenceKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-@MainActor
-final class PrayerAlertScheduler: ObservableObject {
-    @Published private(set) var triggerToken: Int = 0
-
-    private var isEnabled: Bool = false
-    private var coordinate: CLLocationCoordinate2D?
-    private var timeZone: TimeZone = .current
-    private var timer: Timer?
-
-    func configure(enabled: Bool, coordinate: CLLocationCoordinate2D?, timeZone: TimeZone = .current) {
-        isEnabled = enabled
-        self.coordinate = coordinate
-        self.timeZone = timeZone
-        reschedule(from: .now)
-    }
-
-    func invalidate() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func reschedule(from date: Date) {
-        invalidate()
-
-        guard isEnabled, let coordinate else { return }
-
-        guard let next = PrayerKit.nextPrayer(
-            now: date,
-            latitude: coordinate.latitude,
-            longitude: coordinate.longitude,
-            timeZone: timeZone
-        ) else { return }
-
-        let fireDate = next.time
-
-        // Avoid immediate loops if the computed next prayer is effectively "now".
-        if fireDate <= date.addingTimeInterval(0.5) {
-            reschedule(from: date.addingTimeInterval(1))
-            return
-        }
-
-        let t = Timer(
-            fireAt: fireDate,
-            interval: 0,
-            target: self,
-            selector: #selector(handleFire(_:)),
-            userInfo: nil,
-            repeats: false
-        )
-        timer = t
-        RunLoop.main.add(t, forMode: .common)
-    }
-
-    @objc private func handleFire(_ timer: Timer) {
-        triggerToken &+= 1
-        reschedule(from: Date().addingTimeInterval(1))
-    }
-}
-
 // The content that appears in the sticky note window
 struct StickyNoteView: View {
     @StateObject private var resizer: StickyNoteWindowResizer
-    @StateObject private var prayerAlertScheduler = PrayerAlertScheduler()
 
     @AppStorage("stickyNoteText") private var text: String = ""
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
@@ -726,8 +666,6 @@ struct StickyNoteView: View {
     @State private var prayerAlertResetTask: Task<Void, Never>?
 
     @Environment(\.controlActiveState) private var controlActiveState
-
-    @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
 
     private var fontScale: CGFloat {
         StickyNoteFontSizeOption.from(rawValue: stickyNoteFontSizeOptionRaw).scale
@@ -801,13 +739,12 @@ struct StickyNoteView: View {
             resizer.setMinTextHeight(minTextContentHeight)
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
             resizer.setPrayerEnabled(prayerEnabled)
-            updatePrayerAlertScheduler()
+
             if prayerEnabled {
                 isPrayerAccessoryVisible = false
                 DispatchQueue.main.async {
                     isPrayerAccessoryVisible = true
                 }
-                prayerLocationManager.requestAccessAndLocation()
             } else {
                 isPrayerAccessoryVisible = false
             }
@@ -816,7 +753,6 @@ struct StickyNoteView: View {
             prayerAlertResetTask?.cancel()
             prayerAlertResetTask = nil
             isPrayerAlertTintVisible = false
-            prayerAlertScheduler.invalidate()
         }
         .onChange(of: isEditing) { _, _ in
             resizer.animateNextResize()
@@ -839,13 +775,6 @@ struct StickyNoteView: View {
             }
             resizer.setPrayerEnabled(enabled)
             resizer.setTextPadding(top: textTopPadding, bottom: textBottomPadding)
-            updatePrayerAlertScheduler()
-            if enabled {
-                prayerLocationManager.requestAccessAndLocation()
-            }
-        }
-        .onChange(of: prayerAlertEnabled) { _, _ in
-            updatePrayerAlertScheduler()
         }
         .onChange(of: stickyNoteFontSizeOptionRaw) { _, _ in
             resizer.setMinTextHeight(minTextContentHeight)
@@ -878,8 +807,6 @@ struct StickyNoteView: View {
                     .padding(.trailing, StickyNoteLayout.controlsButtonInset)
             }
         }
-        .onReceive(prayerLocationManager.$lastKnownCoordinate) { _ in updatePrayerAlertScheduler() }
-        .onReceive(prayerAlertScheduler.$triggerToken) { _ in triggerPrayerAlertPulse() }
         .onChange(of: prayerAlertTestNonce) { _, _ in triggerPrayerAlertPulse() }
     }
 
@@ -903,32 +830,14 @@ struct StickyNoteView: View {
         }
     }
 
-    @ViewBuilder
     private var prayerAccessoryView: some View {
-        VStack(spacing: 0) {
-            Divider().opacity(0.25)
-            if let coordinate = prayerLocationManager.lastKnownCoordinate {
-                PrayerSectionView(coordinate: coordinate, fontScale: fontScale)
-            } else {
-                Text(prayerLocationPlaceholderText)
-                    .font(.system(size: 13 * fontScale))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, StickyNoteLayout.contentPadding)
-            }
-        }
-    }
-
-    private var prayerLocationPlaceholderText: String {
-        switch prayerLocationManager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            return "Getting location…"
-        case .notDetermined:
-            return "Allow location access in Settings to show prayer times."
-        case .restricted, .denied:
-            return "Location access is off. Enable it in System Settings to show prayer times."
-        @unknown default:
-            return "Location status unknown."
+        PrayerAccessoryView(
+            enabled: prayerEnabled,
+            alertsEnabled: prayerAlertEnabled,
+            fontScale: fontScale,
+            horizontalPadding: StickyNoteLayout.contentPadding
+        ) {
+            triggerPrayerAlertPulse()
         }
     }
 
@@ -963,14 +872,6 @@ struct StickyNoteView: View {
 
         isTextEditorFocused = false
         isEditing = false
-    }
-
-    private func updatePrayerAlertScheduler() {
-        prayerAlertScheduler.configure(
-            enabled: prayerEnabled && prayerAlertEnabled,
-            coordinate: prayerLocationManager.lastKnownCoordinate,
-            timeZone: .current
-        )
     }
 
     private func triggerPrayerAlertPulse() {

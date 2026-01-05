@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F908F5927EB248B58666E16B /* PrayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16E465BD2D5C4136950285D5 /* PrayerKit */; };
+		F7D27B462F0C1A8D008F82CF /* PrayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7D27B452F0C1A8D008F82CF /* PrayerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,7 +16,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F7BE3D3A2EEF9E9D00FB648F /* . */ = {
+		F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ThinkFirst;
 			sourceTree = "<group>";
@@ -27,7 +27,7 @@
 		F7BE3D352EEF9E9D00FB648F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				F908F5927EB248B58666E16B /* PrayerKit in Frameworks */,
+				F7D27B462F0C1A8D008F82CF /* PrayerKit in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -41,7 +41,7 @@
 		F7BE3D2F2EEF9E9D00FB648F = {
 			isa = PBXGroup;
 			children = (
-				F7BE3D3A2EEF9E9D00FB648F /* . */,
+				F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */,
 				F7BE3D392EEF9E9D00FB648F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -68,11 +68,11 @@
 			buildRules = (
 			);
 			fileSystemSynchronizedGroups = (
-				F7BE3D3A2EEF9E9D00FB648F /* . */,
+				F7BE3D3A2EEF9E9D00FB648F /* ThinkFirst */,
 			);
 			name = ThinkFirst;
 			packageProductDependencies = (
-				16E465BD2D5C4136950285D5 /* PrayerKit */,
+				F7D27B452F0C1A8D008F82CF /* PrayerKit */,
 			);
 			productName = ThinkFirst;
 			productReference = F7BE3D382EEF9E9D00FB648F /* ThinkFirst.app */;
@@ -103,7 +103,7 @@
 			mainGroup = F7BE3D2F2EEF9E9D00FB648F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				7B02EF16FC3449DCA86B15E6 /* XCRemoteSwiftPackageReference "PrayerKit" */,
+				F7D27B442F0C1A8D008F82CF /* XCLocalSwiftPackageReference "PrayerKit" */,
 			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = F7BE3D392EEF9E9D00FB648F /* Products */;
@@ -363,21 +363,16 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		7B02EF16FC3449DCA86B15E6 /* XCRemoteSwiftPackageReference "PrayerKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "git@github.com:plxzy255/PrayerKit.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		F7D27B442F0C1A8D008F82CF /* XCLocalSwiftPackageReference "PrayerKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PrayerKit;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		16E465BD2D5C4136950285D5 /* PrayerKit */ = {
+		F7D27B452F0C1A8D008F82CF /* PrayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 7B02EF16FC3449DCA86B15E6 /* XCRemoteSwiftPackageReference "PrayerKit" */;
 			productName = PrayerKit;
 		};
 /* End XCSwiftPackageProductDependency section */

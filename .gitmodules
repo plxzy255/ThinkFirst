@@ -1,0 +1,3 @@
+[submodule "PrayerKit"]
+	path = PrayerKit
+	url = https://github.com/plxzy255/PrayerKit.git
