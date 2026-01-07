@@ -59,6 +59,32 @@ private final class StickyNoteWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+// MARK: - Visual Effect Wrapper for Inactive State
+
+private struct VisualEffectView: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+    
+    init(material: NSVisualEffectView.Material = .windowBackground, blendingMode: NSVisualEffectView.BlendingMode = .behindWindow) {
+        self.material = material
+        self.blendingMode = blendingMode
+    }
+    
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+        nsView.state = .active
+    }
+}
+
 final class StickyNoteWindowResizer: ObservableObject {
     private weak var window: NSWindow?
 
@@ -790,7 +816,8 @@ struct StickyNoteView: View {
                     Rectangle().fill(.ultraThinMaterial)
                 }
             } else {
-                Color.black.opacity(inactiveBackgroundOpacity)
+                VisualEffectView(material: .windowBackground, blendingMode: .behindWindow)
+                    .opacity(Double(inactiveBackgroundOpacity))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
