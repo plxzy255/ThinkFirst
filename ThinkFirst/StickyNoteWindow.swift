@@ -855,19 +855,13 @@ struct StickyNoteView: View {
     }
 
     private var settingsButton: some View {
-        Button {
-            openSettings()
-        } label: {
+        SettingsLink {
             Label("Settings", systemImage: "ellipsis.circle")
                 .labelStyle(.iconOnly)
         }
         .buttonStyle(.borderless)
         .controlSize(.regular)
         .accessibilityLabel("Settings")
-    }
-
-    private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 
     private func endEditing() {
