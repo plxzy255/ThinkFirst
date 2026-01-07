@@ -26,6 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct ThinkFirstApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     var body: some Scene {
-        Settings {}
+        Settings {
+            ThinkFirstSettingsView()
+        }
     }
 }

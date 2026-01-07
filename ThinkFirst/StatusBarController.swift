@@ -5,42 +5,6 @@
 import SwiftUI
 import AppKit
 
-final class SettingsPanelController: NSWindowController {
-    static let shared = SettingsPanelController()
-
-    init() {
-        let hostingView = NSHostingView(rootView: ThinkFirstSettingsView())
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 452, height: 320),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = "Settings"
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.isReleasedWhenClosed = false
-        panel.contentView = hostingView
-        panel.center()
-
-        super.init(window: panel)
-    }
-
-    required init?(coder: NSCoder) { super.init(coder: coder) }
-
-    func show() {
-        guard let window else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        window.orderFrontRegardless()
-        window.makeKeyAndOrderFront(nil)
-    }
-}
-
 final class StatusBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var stickyNoteWindowController: StickyNoteWindowController? = nil
@@ -60,11 +24,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         toggleVisibilityItem.target = self
         toggleVisibilityItem.action = #selector(toggleStickyNoteFromMenu)
         statusMenu.addItem(toggleVisibilityItem)
-
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settingsItem.keyEquivalentModifierMask = [.command]
-        settingsItem.target = self
-        statusMenu.addItem(settingsItem)
 
         statusMenu.addItem(.separator())
 
@@ -109,13 +68,5 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
-    }
-
-    @objc private func showSettings() {
-        // Showing a window while the status bar menu is tracking can fail to reveal it reliably.
-        // Defer to the next run loop so the menu has closed first.
-        DispatchQueue.main.async {
-            SettingsPanelController.shared.show()
-        }
     }
 }
