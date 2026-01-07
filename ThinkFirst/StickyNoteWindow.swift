@@ -801,6 +801,10 @@ struct StickyNoteView: View {
                 doneButton
                     .padding(.top, StickyNoteLayout.controlsButtonInset)
                     .padding(.trailing, StickyNoteLayout.controlsButtonInset)
+            } else if isWindowActive {
+                settingsButton
+                    .padding(.top, StickyNoteLayout.controlsButtonInset)
+                    .padding(.trailing, StickyNoteLayout.controlsButtonInset)
             }
         }
         .onChange(of: prayerAlertTestNonce) { _, _ in triggerPrayerAlertPulse() }
@@ -848,6 +852,22 @@ struct StickyNoteView: View {
         .controlSize(.regular)
         .tint(.accentColor)
         .accessibilityLabel("Done")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            openSettings()
+        } label: {
+            Label("Settings", systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
+        .accessibilityLabel("Settings")
+    }
+
+    private func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 
     private func endEditing() {
