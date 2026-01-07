@@ -990,6 +990,18 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
 
         window.delegate = self
         resizer.attach(window: window)
+        
+        UserDefaults.standard.addObserver(self, forKeyPath: "stickyNoteInactiveBackgroundOpacity", options: [.new], context: nil)
+    }
+    
+    nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+        if keyPath == "stickyNoteInactiveBackgroundOpacity" {
+            Task { @MainActor in
+                if window?.isKeyWindow == false {
+                    updateOverlayAlpha(isKey: false)
+                }
+            }
+        }
     }
 
     required init?(coder: NSCoder) { super.init(coder: coder) }
@@ -1012,7 +1024,7 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
                     subview.alphaValue = 0
                 } else {
                     let opacity = UserDefaults.standard.double(forKey: "stickyNoteInactiveBackgroundOpacity")
-                    subview.alphaValue = CGFloat(1 - opacity)
+                    subview.alphaValue = CGFloat(opacity)
                 }
                 return
             }
