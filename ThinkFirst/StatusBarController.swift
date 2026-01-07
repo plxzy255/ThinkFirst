@@ -25,6 +25,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         toggleVisibilityItem.action = #selector(toggleStickyNoteFromMenu)
         statusMenu.addItem(toggleVisibilityItem)
 
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.keyEquivalentModifierMask = [.command]
+        settingsItem.target = self
+        statusMenu.addItem(settingsItem)
+
         statusMenu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
@@ -68,5 +73,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
