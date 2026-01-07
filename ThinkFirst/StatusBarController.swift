@@ -76,6 +76,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        DispatchQueue.main.async {
+            if let mainMenu = NSApp.mainMenu {
+                for menu in mainMenu.items {
+                    if let submenu = menu.submenu {
+                        for item in submenu.items {
+                            if item.title.contains("Settings") || item.title.contains("Preferences") {
+                                if let action = item.action {
+                                    NSApp.sendAction(action, to: item.target, from: nil)
+                                }
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

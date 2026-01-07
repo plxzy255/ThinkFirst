@@ -1,10 +1,3 @@
-//
-//  ThinkFirstApp.swift
-//  ThinkFirst
-//
-//  Created by psporidi on 15/12/2025.
-//
-
 import SwiftUI
 import AppKit
 
