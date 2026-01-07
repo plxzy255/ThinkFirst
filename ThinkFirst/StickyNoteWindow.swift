@@ -808,17 +808,7 @@ struct StickyNoteView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            if isWindowActive {
-                if #available(macOS 26.0, *) {
-                    Color.clear
-                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
-                } else {
-                    Rectangle().fill(.ultraThinMaterial)
-                }
-            } else {
-                VisualEffectView(material: .windowBackground, blendingMode: .behindWindow)
-                    .opacity(Double(inactiveBackgroundOpacity))
-            }
+            Color.clear
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay { alertTintOverlay }
@@ -942,6 +932,41 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
 
         let window = StickyNoteWindow(contentViewController: hosting)
         window.title = "Sticky Note"
+        
+        let effectView = NSVisualEffectView()
+        effectView.material = .hudWindow
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 16
+        effectView.layer?.masksToBounds = true
+        
+        let overlayView = NSView()
+        overlayView.wantsLayer = true
+        overlayView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor
+        overlayView.alphaValue = 0
+        overlayView.identifier = NSUserInterfaceItemIdentifier("transparencyOverlay")
+        
+        effectView.addSubview(overlayView)
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            overlayView.topAnchor.constraint(equalTo: effectView.topAnchor),
+            overlayView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor)
+        ])
+        
+        hosting.view.removeFromSuperview()
+        effectView.addSubview(hosting.view)
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            hosting.view.topAnchor.constraint(equalTo: effectView.topAnchor),
+            hosting.view.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: effectView.bottomAnchor)
+        ])
+        
+        window.contentView = effectView
 
         let storedFontOptionRaw = UserDefaults.standard.string(forKey: StickyNoteFontSizeOption.storageKey) ?? StickyNoteFontSizeOption.normal.rawValue
         let storedFontScale = StickyNoteFontSizeOption.from(rawValue: storedFontOptionRaw).scale
@@ -968,7 +993,32 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { super.init(coder: coder) }
-
+    
+    func windowDidBecomeKey(_ notification: Notification) {
+        updateOverlayAlpha(isKey: true)
+    }
+    
+    func windowDidResignKey(_ notification: Notification) {
+        updateOverlayAlpha(isKey: false)
+    }
+    
+    private func updateOverlayAlpha(isKey: Bool) {
+        guard let win = window,
+              let contentView = win.contentView else { return }
+        
+        for subview in contentView.subviews {
+            if subview.identifier == NSUserInterfaceItemIdentifier("transparencyOverlay") {
+                if isKey {
+                    subview.alphaValue = 0
+                } else {
+                    let opacity = UserDefaults.standard.double(forKey: "stickyNoteInactiveBackgroundOpacity")
+                    subview.alphaValue = CGFloat(1 - opacity)
+                }
+                return
+            }
+        }
+    }
+    
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         let minContent = NSSize(width: Self.minWidth, height: 1)
         let maxContent = NSSize(width: Self.maxWidth, height: 1)
