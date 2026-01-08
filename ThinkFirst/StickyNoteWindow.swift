@@ -933,6 +933,8 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         let window = StickyNoteWindow(contentViewController: hosting)
         window.title = "Sticky Note"
         
+        let containerView = NSView()
+        
         let effectView = NSVisualEffectView()
         effectView.material = .hudWindow
         effectView.blendingMode = .behindWindow
@@ -940,6 +942,13 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         effectView.wantsLayer = true
         effectView.layer?.cornerRadius = 16
         effectView.layer?.masksToBounds = true
+        effectView.alphaValue = UserDefaults.standard.bool(forKey: "liquidGlassEnabled") ? 1.0 : 0.0
+        
+        let plainBackground = NSView()
+        plainBackground.wantsLayer = true
+        plainBackground.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
+        plainBackground.layer?.cornerRadius = 16
+        plainBackground.isHidden = UserDefaults.standard.bool(forKey: "liquidGlassEnabled")
         
         let overlayView = NSView()
         overlayView.wantsLayer = true
@@ -947,26 +956,37 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         overlayView.alphaValue = 0
         overlayView.identifier = NSUserInterfaceItemIdentifier("transparencyOverlay")
         
-        effectView.addSubview(overlayView)
-        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(effectView)
+        containerView.addSubview(plainBackground)
+        containerView.addSubview(overlayView)
+        containerView.addSubview(hosting.view)
+        
+        [effectView, plainBackground, overlayView, hosting.view].forEach { view in
+            view.translatesAutoresizingMaskIntoConstraints = false
+        }
         NSLayoutConstraint.activate([
-            overlayView.topAnchor.constraint(equalTo: effectView.topAnchor),
-            overlayView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
-            overlayView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
-            overlayView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor)
+            effectView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            effectView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            effectView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            
+            plainBackground.topAnchor.constraint(equalTo: containerView.topAnchor),
+            plainBackground.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            plainBackground.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            plainBackground.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            
+            overlayView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            overlayView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            
+            hosting.view.topAnchor.constraint(equalTo: containerView.topAnchor),
+            hosting.view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
         
-        hosting.view.removeFromSuperview()
-        effectView.addSubview(hosting.view)
-        hosting.view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            hosting.view.topAnchor.constraint(equalTo: effectView.topAnchor),
-            hosting.view.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
-            hosting.view.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
-            hosting.view.bottomAnchor.constraint(equalTo: effectView.bottomAnchor)
-        ])
-        
-        window.contentView = effectView
+        window.contentView = containerView
 
         let storedFontOptionRaw = UserDefaults.standard.string(forKey: StickyNoteFontSizeOption.storageKey) ?? StickyNoteFontSizeOption.normal.rawValue
         let storedFontScale = StickyNoteFontSizeOption.from(rawValue: storedFontOptionRaw).scale
@@ -992,14 +1012,31 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         resizer.attach(window: window)
         
         UserDefaults.standard.addObserver(self, forKeyPath: "stickyNoteInactiveBackgroundOpacity", options: [.new], context: nil)
+        UserDefaults.standard.addObserver(self, forKeyPath: "liquidGlassEnabled", options: [.new], context: nil)
     }
     
     nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        if keyPath == "stickyNoteInactiveBackgroundOpacity" {
-            Task { @MainActor in
+        Task { @MainActor in
+            if keyPath == "stickyNoteInactiveBackgroundOpacity" {
                 if window?.isKeyWindow == false {
                     updateOverlayAlpha(isKey: false)
                 }
+            } else if keyPath == "liquidGlassEnabled" {
+                updateLiquidGlass()
+            }
+        }
+    }
+    
+    private func updateLiquidGlass() {
+        guard let contentView = window?.contentView else { return }
+        
+        let enabled = UserDefaults.standard.bool(forKey: "liquidGlassEnabled")
+        
+        for subview in contentView.subviews {
+            if let effectView = subview as? NSVisualEffectView {
+                effectView.alphaValue = enabled ? 1.0 : 0.0
+            } else if subview.identifier == NSUserInterfaceItemIdentifier("plainBackground") {
+                subview.isHidden = enabled
             }
         }
     }

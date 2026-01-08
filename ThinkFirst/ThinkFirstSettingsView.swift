@@ -66,6 +66,7 @@ private struct SettingsSectionCard<Content: View>: View {
 
 struct ThinkFirstSettingsView: View {
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.3
+    @AppStorage("liquidGlassEnabled") private var liquidGlassEnabled: Bool = true
     @AppStorage(StickyNoteFontSizeOption.storageKey) private var stickyNoteFontSizeOptionRaw: String = StickyNoteFontSizeOption.normal.rawValue
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
     @AppStorage("prayerAlertEnabled") private var prayerAlertEnabled: Bool = false
@@ -100,6 +101,8 @@ struct ThinkFirstSettingsView: View {
 
                         Slider(value: $inactiveBackgroundOpacity, in: 0...1)
                             .frame(maxWidth: 220)
+                        
+                        Toggle("Liquid glass effect", isOn: $liquidGlassEnabled)
                     }
                 }
 
