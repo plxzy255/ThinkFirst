@@ -9,7 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         statusBarController = StatusBarController()
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.statusBarController?.showStickyNote()
         }
     }

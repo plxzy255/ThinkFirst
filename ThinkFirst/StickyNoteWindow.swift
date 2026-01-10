@@ -85,7 +85,8 @@ private struct VisualEffectView: NSViewRepresentable {
     }
 }
 
-final class StickyNoteWindowResizer: ObservableObject {
+@Observable
+final class StickyNoteWindowResizer {
     private weak var window: NSWindow?
 
     private var isPrayerEnabled: Bool = false
@@ -177,7 +178,7 @@ final class StickyNoteWindowResizer: ObservableObject {
     private func scheduleApply() {
         guard !pendingApply else { return }
         pendingApply = true
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             self.pendingApply = false
             self.apply()
@@ -344,13 +345,13 @@ private struct NativeTextView: NSViewRepresentable {
         unsafe textView.textContainer?.heightTracksTextView = false
 
         textView.onFocusChange = { focused in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 isFocused = focused
                 onFocusChange?(focused)
             }
         }
         textView.onEndEditing = {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 isFocused = false
                 onEndEditing?()
             }
@@ -676,7 +677,7 @@ private struct PrayerAccessoryHeightPreferenceKey: PreferenceKey {
 
 // The content that appears in the sticky note window
 struct StickyNoteView: View {
-    @StateObject private var resizer: StickyNoteWindowResizer
+    @State private var resizer: StickyNoteWindowResizer
 
     @AppStorage("stickyNoteText") private var text: String = ""
     @AppStorage("stickyNoteInactiveBackgroundOpacity") private var inactiveBackgroundOpacity: Double = 0.14
@@ -713,7 +714,7 @@ struct StickyNoteView: View {
     private var isWindowActive: Bool { controlActiveState == .key }
 
     init(resizer: StickyNoteWindowResizer = StickyNoteWindowResizer(), previewIsEditing: Bool = false) {
-        _resizer = StateObject(wrappedValue: resizer)
+        _resizer = State(initialValue: resizer)
         _isEditing = State(initialValue: previewIsEditing)
         _isTextEditorFocused = State(initialValue: previewIsEditing)
     }
@@ -768,7 +769,7 @@ struct StickyNoteView: View {
 
             if prayerEnabled {
                 isPrayerAccessoryVisible = false
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     isPrayerAccessoryVisible = true
                 }
             } else {
@@ -793,7 +794,7 @@ struct StickyNoteView: View {
         .onChange(of: prayerEnabled) { _, enabled in
             if enabled {
                 isPrayerAccessoryVisible = false
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     isPrayerAccessoryVisible = true
                 }
             } else {
@@ -841,7 +842,7 @@ struct StickyNoteView: View {
             onDragEnd: { resizer.endUserDrag() }
         ) {
             isEditing = true
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 isTextEditorFocused = true
             }
         }

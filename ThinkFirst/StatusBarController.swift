@@ -76,7 +76,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSettings() {
-        DispatchQueue.main.async {
+        Task { @MainActor in
             if let mainMenu = NSApp.mainMenu {
                 for menu in mainMenu.items {
                     if let submenu = menu.submenu {

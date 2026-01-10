@@ -71,7 +71,7 @@ struct ThinkFirstSettingsView: View {
     @AppStorage("prayerEnabled") private var prayerEnabled: Bool = false
     @AppStorage("prayerAlertEnabled") private var prayerAlertEnabled: Bool = false
     @AppStorage("prayerAlertTestNonce") private var prayerAlertTestNonce: Int = 0
-    @ObservedObject private var prayerLocationManager = PrayerLocationManager.shared
+    private var prayerLocationManager = PrayerLocationManager.shared
 
     var body: some View {
         ZStack {
@@ -125,19 +125,16 @@ struct ThinkFirstSettingsView: View {
                             .buttonStyle(.bordered)
 
                             Group {
-                                switch prayerLocationManager.authorizationStatus {
-                                case .authorizedAlways, .authorizedWhenInUse:
+                                if prayerLocationManager.authorizationStatus == .authorizedAlways {
                                     if prayerLocationManager.lastKnownCoordinate != nil {
                                         Text("Using your current location to calculate prayer times.")
                                     } else {
                                         Text("Getting location…")
                                     }
-                                case .notDetermined:
+                                } else if prayerLocationManager.authorizationStatus == .notDetermined {
                                     Text("Allow location access to calculate prayer times.")
-                                case .restricted, .denied:
+                                } else {
                                     Text("Location access is off. Enable it in System Settings to show prayer times.")
-                                @unknown default:
-                                    Text("Location status unknown.")
                                 }
                             }
                             .font(.caption)
