@@ -942,17 +942,21 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         effectView.wantsLayer = true
         effectView.layer?.cornerRadius = 16
         effectView.layer?.masksToBounds = true
-        effectView.alphaValue = UserDefaults.standard.bool(forKey: "liquidGlassEnabled") ? 1.0 : 0.0
+        let liquidGlassEnabled = UserDefaults.standard.bool(forKey: "liquidGlassEnabled")
+        let opacity = UserDefaults.standard.double(forKey: "stickyNoteInactiveBackgroundOpacity")
+        effectView.alphaValue = liquidGlassEnabled ? CGFloat(opacity) : 0.0
         
         let plainBackground = NSView()
         plainBackground.wantsLayer = true
-        plainBackground.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
+        plainBackground.layer?.backgroundColor = NSColor.black.cgColor
         plainBackground.layer?.cornerRadius = 16
         plainBackground.isHidden = UserDefaults.standard.bool(forKey: "liquidGlassEnabled")
+        plainBackground.alphaValue = CGFloat(UserDefaults.standard.double(forKey: "stickyNoteInactiveBackgroundOpacity"))
+        plainBackground.identifier = NSUserInterfaceItemIdentifier("plainBackground")
         
         let overlayView = NSView()
         overlayView.wantsLayer = true
-        overlayView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor
+        overlayView.layer?.backgroundColor = NSColor.clear.cgColor
         overlayView.alphaValue = 0
         overlayView.identifier = NSUserInterfaceItemIdentifier("transparencyOverlay")
         
@@ -1018,9 +1022,7 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
     nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
         Task { @MainActor in
             if keyPath == "stickyNoteInactiveBackgroundOpacity" {
-                if window?.isKeyWindow == false {
-                    updateOverlayAlpha(isKey: false)
-                }
+                updateLiquidGlass()
             } else if keyPath == "liquidGlassEnabled" {
                 updateLiquidGlass()
             }
@@ -1031,12 +1033,16 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         guard let contentView = window?.contentView else { return }
         
         let enabled = UserDefaults.standard.bool(forKey: "liquidGlassEnabled")
+        let opacity = UserDefaults.standard.double(forKey: "stickyNoteInactiveBackgroundOpacity")
         
         for subview in contentView.subviews {
             if let effectView = subview as? NSVisualEffectView {
-                effectView.alphaValue = enabled ? 1.0 : 0.0
+                effectView.alphaValue = enabled ? CGFloat(opacity) : 0.0
             } else if subview.identifier == NSUserInterfaceItemIdentifier("plainBackground") {
                 subview.isHidden = enabled
+                if !enabled {
+                    subview.alphaValue = CGFloat(opacity)
+                }
             }
         }
     }
@@ -1044,28 +1050,9 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { super.init(coder: coder) }
     
     func windowDidBecomeKey(_ notification: Notification) {
-        updateOverlayAlpha(isKey: true)
     }
     
     func windowDidResignKey(_ notification: Notification) {
-        updateOverlayAlpha(isKey: false)
-    }
-    
-    private func updateOverlayAlpha(isKey: Bool) {
-        guard let win = window,
-              let contentView = win.contentView else { return }
-        
-        for subview in contentView.subviews {
-            if subview.identifier == NSUserInterfaceItemIdentifier("transparencyOverlay") {
-                if isKey {
-                    subview.alphaValue = 0
-                } else {
-                    let opacity = UserDefaults.standard.double(forKey: "stickyNoteInactiveBackgroundOpacity")
-                    subview.alphaValue = CGFloat(opacity)
-                }
-                return
-            }
-        }
     }
     
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
