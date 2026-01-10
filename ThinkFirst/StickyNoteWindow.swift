@@ -108,6 +108,7 @@ final class StickyNoteWindowResizer {
 
     private var lastAppliedContentHeight: CGFloat = 0
     private var pendingApply: Bool = false
+    private var hasReceivedInitialMeasurement: Bool = false
 
     func attach(window: NSWindow) {
         self.window = window
@@ -138,6 +139,7 @@ final class StickyNoteWindowResizer {
         guard height.isFinite else { return }
         if abs(measuredTextHeight - height) <= 0.5 { return }
         measuredTextHeight = height
+        hasReceivedInitialMeasurement = true
         scheduleApply()
     }
 
@@ -187,6 +189,7 @@ final class StickyNoteWindowResizer {
 
     private func apply() {
         guard let window else { return }
+        guard hasReceivedInitialMeasurement else { return }
 
         let textHeight = max(measuredTextHeight, minTextHeight)
         let prayerHeight = isPrayerEnabled ? measuredPrayerHeight : 0
@@ -1016,8 +1019,8 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         resizer.attach(window: window)
         
-        UserDefaults.standard.addObserver(self, forKeyPath: "stickyNoteInactiveBackgroundOpacity", options: [.new], context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: "liquidGlassEnabled", options: [.new], context: nil)
+        unsafe UserDefaults.standard.addObserver(self, forKeyPath: "stickyNoteInactiveBackgroundOpacity", options: [.new], context: nil)
+        unsafe UserDefaults.standard.addObserver(self, forKeyPath: "liquidGlassEnabled", options: [.new], context: nil)
     }
     
     nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
@@ -1057,8 +1060,8 @@ final class StickyNoteWindowController: NSWindowController, NSWindowDelegate {
     }
     
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        let minContent = NSSize(width: Self.minWidth, height: 1)
-        let maxContent = NSSize(width: Self.maxWidth, height: 1)
+        let minContent = NSSize(width: Self.minWidth, height: sender.contentMinSize.height)
+        let maxContent = NSSize(width: Self.maxWidth, height: sender.contentMinSize.height)
 
         let minFrameWidth = sender.frameRect(forContentRect: NSRect(origin: .zero, size: minContent)).width
         let maxFrameWidth = sender.frameRect(forContentRect: NSRect(origin: .zero, size: maxContent)).width
